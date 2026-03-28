@@ -18,9 +18,38 @@ interface VoiceProfile {
   voice_summary: string;
 }
 
-const ANALYZE_SYSTEM = `You are a LinkedIn voice analyst. Your job is to analyze a person's LinkedIn posting style by searching for their recent posts.
+const SCRAPE_SYSTEM = `You are a LinkedIn post researcher. Your job is to find a person's actual LinkedIn posts using web search.
 
-You will be given a LinkedIn profile URL. Use web search to find their LinkedIn posts and analyze their writing patterns.
+You will be given a LinkedIn profile URL and optionally a person's name. Use web search to find their LinkedIn posts.
+
+Search strategies:
+1. Search "site:linkedin.com [profile_url] posts"
+2. Search "[person name] linkedin posts"
+3. Search "site:linkedin.com/posts [person name]"
+
+For each post you find, extract the FULL text of the post. Aim to find 5-15 posts.
+
+You MUST return ONLY valid JSON (no markdown, no code fences, no explanation) in this format:
+{
+  "posts": [
+    {
+      "text": "The full text of the post exactly as written",
+      "preview": "First 100 characters of the post..."
+    }
+  ]
+}
+
+Guidelines:
+- Extract the complete post text, not just snippets
+- Include line breaks as they appear in the original
+- Do not modify or paraphrase the posts - use the exact text
+- If you find fewer than 5 posts, return what you find
+- If you cannot find any posts, return { "posts": [] }
+- Return ONLY the JSON object`;
+
+const ANALYZE_SYSTEM = `You are a LinkedIn voice analyst. Your job is to analyze a set of LinkedIn posts and extract the writer's voice profile.
+
+You will be given actual LinkedIn posts written by a person. Analyze their writing patterns carefully.
 
 You MUST return ONLY valid JSON (no markdown, no code fences, no explanation) in this exact format:
 {
@@ -42,13 +71,13 @@ Guidelines:
 - formatting_patterns: How they structure posts (e.g., "short single-line paragraphs", "uses line breaks heavily", "numbered lists", "uses bold for emphasis")
 - common_topics: 3-6 themes they post about most
 - signature_phrases: Any recurring phrases or verbal tics
-- closing_style: How they typically end posts (e.g., "asks a question to the audience", "ends with a call to action", "summarizes the key takeaway")
+- closing_style: How they typically end posts (e.g., "asks a question to the audience", "ends with a call to action")
 - post_length: Typical post length
 - emoji_usage: How they use emojis
 - hashtag_usage: How they use hashtags
 - voice_summary: A concise summary paragraph
 
-If you cannot find enough posts, still provide your best analysis based on what you find. Return ONLY the JSON object.`;
+Analyze ONLY the posts provided. Base your analysis entirely on these specific examples. Return ONLY the JSON object.`;
 
 export async function POST(request: Request) {
   try {
@@ -59,61 +88,238 @@ export async function POST(request: Request) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { linkedin_url } = await request.json();
-    if (!linkedin_url || typeof linkedin_url !== "string") {
-      return Response.json({ error: "linkedin_url is required" }, { status: 400 });
+    const body = await request.json();
+    const { action } = body;
+
+    if (!action || typeof action !== "string") {
+      return Response.json({ error: "action is required" }, { status: 400 });
     }
 
-    const claude = getClaudeClient();
-
-    const response = await claude.messages.create({
-      model: resolveModel("claude-sonnet-4-6"),
-      max_tokens: MAX_TOKENS,
-      system: [{ type: "text", text: ANALYZE_SYSTEM }],
-      tools: [{ type: "web_search_20250305" as const, name: "web_search", max_uses: 5 }],
-      messages: [
-        {
-          role: "user",
-          content: `Analyze the LinkedIn voice and posting style of the person at this profile URL: ${linkedin_url}\n\nSearch for their recent LinkedIn posts and analyze their writing patterns. Return ONLY the JSON voice profile.`,
-        },
-      ],
-    });
-
-    // Extract text from response
-    let rawText = "";
-    for (const block of response.content) {
-      if (block.type === "text") rawText += block.text;
+    switch (action) {
+      case "scrape":
+        return handleScrape(body);
+      case "analyze":
+        return handleAnalyze(body, session.user.id);
+      case "save_samples":
+        return handleSaveSamples(body, session.user.id);
+      case "add_sample":
+        return handleAddSample(body, session.user.id);
+      case "remove_sample":
+        return handleRemoveSample(body, session.user.id);
+      default:
+        return Response.json({ error: `Unknown action: ${action}` }, { status: 400 });
     }
-
-    // Parse the JSON from the response
-    let voiceProfile: VoiceProfile;
-    try {
-      // Try to extract JSON from the response (handle potential markdown wrapping)
-      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        return Response.json({ error: "Failed to parse voice profile from analysis" }, { status: 500 });
-      }
-      voiceProfile = JSON.parse(jsonMatch[0]);
-    } catch {
-      return Response.json({ error: "Failed to parse voice profile JSON" }, { status: 500 });
-    }
-
-    // Save to profiles table using service role client
-    const supabase = getSupabaseServerClient();
-    if (supabase) {
-      await supabase
-        .from("profiles")
-        .update({
-          linkedin_voice: voiceProfile,
-          linkedin_url: linkedin_url,
-        })
-        .eq("id", session.user.id);
-    }
-
-    return Response.json({ voice_profile: voiceProfile });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Internal server error";
     console.error("LinkedIn analyze error:", message);
     return Response.json({ error: message }, { status: 500 });
   }
+}
+
+// ─── action="scrape" ───────────────────────────────────────────────────────────
+
+async function handleScrape(body: Record<string, unknown>) {
+  const { linkedin_url, full_name } = body;
+  if (!linkedin_url || typeof linkedin_url !== "string") {
+    return Response.json({ error: "linkedin_url is required" }, { status: 400 });
+  }
+
+  const claude = getClaudeClient();
+  const nameStr = full_name && typeof full_name === "string" ? full_name : "";
+
+  const searchInstructions = [
+    `Search for: site:linkedin.com ${linkedin_url} posts`,
+    nameStr ? `Also search for: ${nameStr} linkedin posts` : null,
+    nameStr ? `Also try: site:linkedin.com/posts ${nameStr}` : null,
+  ].filter(Boolean).join("\n");
+
+  const response = await claude.messages.create({
+    model: resolveModel("claude-sonnet-4-6"),
+    max_tokens: MAX_TOKENS,
+    system: [{ type: "text", text: SCRAPE_SYSTEM }],
+    tools: [{ type: "web_search_20250305" as const, name: "web_search", max_uses: 10 }],
+    messages: [
+      {
+        role: "user",
+        content: `Find LinkedIn posts from this profile: ${linkedin_url}${nameStr ? `\nPerson's name: ${nameStr}` : ""}\n\n${searchInstructions}\n\nReturn the posts as JSON.`,
+      },
+    ],
+  });
+
+  // Extract text from response
+  let rawText = "";
+  for (const block of response.content) {
+    if (block.type === "text") rawText += block.text;
+  }
+
+  // Parse the JSON
+  try {
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      return Response.json({ error: "Failed to parse posts from search results" }, { status: 500 });
+    }
+    const result = JSON.parse(jsonMatch[0]);
+    return Response.json({ posts: result.posts || [] });
+  } catch {
+    return Response.json({ error: "Failed to parse scraped posts JSON" }, { status: 500 });
+  }
+}
+
+// ─── action="analyze" ──────────────────────────────────────────────────────────
+
+async function handleAnalyze(body: Record<string, unknown>, userId: string) {
+  const { samples } = body;
+  if (!Array.isArray(samples) || samples.length === 0) {
+    return Response.json({ error: "samples array is required and must not be empty" }, { status: 400 });
+  }
+
+  const claude = getClaudeClient();
+
+  const postsText = (samples as string[])
+    .map((text, i) => `--- Post ${i + 1} ---\n${text}`)
+    .join("\n\n");
+
+  const response = await claude.messages.create({
+    model: resolveModel("claude-sonnet-4-6"),
+    max_tokens: MAX_TOKENS,
+    system: [{ type: "text", text: ANALYZE_SYSTEM }],
+    messages: [
+      {
+        role: "user",
+        content: `Analyze the voice and writing style of these LinkedIn posts:\n\n${postsText}\n\nReturn ONLY the JSON voice profile.`,
+      },
+    ],
+  });
+
+  // Extract text from response
+  let rawText = "";
+  for (const block of response.content) {
+    if (block.type === "text") rawText += block.text;
+  }
+
+  // Parse the JSON
+  let voiceProfile: VoiceProfile;
+  try {
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      return Response.json({ error: "Failed to parse voice profile from analysis" }, { status: 500 });
+    }
+    voiceProfile = JSON.parse(jsonMatch[0]);
+  } catch {
+    return Response.json({ error: "Failed to parse voice profile JSON" }, { status: 500 });
+  }
+
+  // Save both voice profile and samples to profiles table
+  const supabase = getSupabaseServerClient();
+  if (supabase) {
+    await supabase
+      .from("profiles")
+      .update({
+        linkedin_voice: voiceProfile,
+        linkedin_samples: samples,
+      })
+      .eq("id", userId);
+  }
+
+  return Response.json({ voice_profile: voiceProfile, saved: true });
+}
+
+// ─── action="save_samples" ─────────────────────────────────────────────────────
+
+async function handleSaveSamples(body: Record<string, unknown>, userId: string) {
+  const { samples } = body;
+  if (!Array.isArray(samples)) {
+    return Response.json({ error: "samples array is required" }, { status: 400 });
+  }
+
+  const supabase = getSupabaseServerClient();
+  if (!supabase) {
+    return Response.json({ error: "Supabase not configured" }, { status: 503 });
+  }
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({ linkedin_samples: samples })
+    .eq("id", userId);
+
+  if (error) {
+    return Response.json({ error: error.message }, { status: 500 });
+  }
+
+  return Response.json({ saved: true, count: samples.length });
+}
+
+// ─── action="add_sample" ──────────────────────────────────────────────────────
+
+async function handleAddSample(body: Record<string, unknown>, userId: string) {
+  const { text } = body;
+  if (!text || typeof text !== "string") {
+    return Response.json({ error: "text is required" }, { status: 400 });
+  }
+
+  const supabase = getSupabaseServerClient();
+  if (!supabase) {
+    return Response.json({ error: "Supabase not configured" }, { status: 503 });
+  }
+
+  // Load existing samples
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("linkedin_samples")
+    .eq("id", userId)
+    .single();
+
+  const existing = Array.isArray(profile?.linkedin_samples) ? (profile.linkedin_samples as string[]) : [];
+  const updated = [...existing, text];
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({ linkedin_samples: updated })
+    .eq("id", userId);
+
+  if (error) {
+    return Response.json({ error: error.message }, { status: 500 });
+  }
+
+  return Response.json({ saved: true, count: updated.length });
+}
+
+// ─── action="remove_sample" ───────────────────────────────────────────────────
+
+async function handleRemoveSample(body: Record<string, unknown>, userId: string) {
+  const { index } = body;
+  if (typeof index !== "number" || index < 0) {
+    return Response.json({ error: "index (non-negative number) is required" }, { status: 400 });
+  }
+
+  const supabase = getSupabaseServerClient();
+  if (!supabase) {
+    return Response.json({ error: "Supabase not configured" }, { status: 503 });
+  }
+
+  // Load existing samples
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("linkedin_samples")
+    .eq("id", userId)
+    .single();
+
+  const existing = Array.isArray(profile?.linkedin_samples) ? (profile.linkedin_samples as string[]) : [];
+
+  if (index >= existing.length) {
+    return Response.json({ error: `Index ${index} out of range (${existing.length} samples)` }, { status: 400 });
+  }
+
+  const updated = [...existing.slice(0, index), ...existing.slice(index + 1)];
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({ linkedin_samples: updated })
+    .eq("id", userId);
+
+  if (error) {
+    return Response.json({ error: error.message }, { status: 500 });
+  }
+
+  return Response.json({ saved: true, count: updated.length });
 }

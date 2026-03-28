@@ -43,10 +43,22 @@ export async function POST(request: Request) {
     const hookStyles = (voice.hook_styles as string[]) || ["bold statement", "personal story", "surprising question"];
     const samples = (profile.linkedin_samples as string[]) || [];
 
+    // Build example posts section — this is the most important part for voice matching
+    const examplesSection = samples.length > 0
+      ? `=== EXAMPLE POSTS (THIS IS YOUR PRIMARY REFERENCE) ===
+Match this voice exactly. Here are examples of how this person writes:
+
+${samples.slice(0, 3).map((s, i) => `--- Example ${i + 1} ---\n${s}`).join("\n\n")}
+
+^^^ The examples above are MORE IMPORTANT than the voice description below. Study the exact word choices, sentence structures, paragraph lengths, and formatting patterns in these examples and replicate them.`
+      : "";
+
     // Build system prompt with voice profile
     const voiceInstructions = `You are a LinkedIn ghostwriter. You write posts that perfectly match this person's authentic voice.
 
-=== VOICE PROFILE ===
+${examplesSection}
+
+=== VOICE PROFILE (Style Rules) ===
 Voice Summary: ${voice.voice_summary || "Professional, engaging LinkedIn writer"}
 Hook Styles: ${hookStyles.join(", ")}
 Tone: ${Array.isArray(voice.tone) ? (voice.tone as string[]).join(", ") : "professional, conversational"}
@@ -57,8 +69,6 @@ Emoji Usage: ${voice.emoji_usage || "minimal"}
 Hashtag Usage: ${voice.hashtag_usage || "none"}
 Signature Phrases: ${Array.isArray(voice.signature_phrases) ? (voice.signature_phrases as string[]).join(", ") : "none identified"}
 Common Topics: ${Array.isArray(voice.common_topics) ? (voice.common_topics as string[]).join(", ") : "business, leadership"}
-
-${samples.length > 0 ? `=== SAMPLE POSTS (Match this style) ===\n${samples.slice(0, 3).join("\n\n---\n\n")}` : ""}
 
 === RULES ===
 - Write in first person as this person
@@ -94,9 +104,13 @@ Write exactly 3 variants separated by ---VARIANT--- markers.
       additionalContext: voiceInstructions,
     });
 
+    const examplesReminder = samples.length > 0
+      ? "\n\nIMPORTANT: The example posts in the system prompt are more important than the voice description. Match the writing style of the examples exactly."
+      : "";
+
     const userMessage = context
-      ? `Write 3 LinkedIn post variants about this topic: ${topic}\n\nAdditional context: ${context}`
-      : `Write 3 LinkedIn post variants about this topic: ${topic}`;
+      ? `Write 3 LinkedIn post variants about this topic: ${topic}\n\nAdditional context: ${context}${examplesReminder}`
+      : `Write 3 LinkedIn post variants about this topic: ${topic}${examplesReminder}`;
 
     const claude = getClaudeClient();
     const encoder = new TextEncoder();

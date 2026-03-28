@@ -17,18 +17,47 @@ export async function GET() {
       return Response.json({ error: "Supabase not configured" }, { status: 503 });
     }
 
-    const { data, error } = await supabase
-      .from("linkedin_posts")
-      .select("id, topic, context, variants, created_at")
-      .eq("user_id", session.user.id)
-      .order("created_at", { ascending: false })
-      .limit(20);
+    // Fetch both generated posts and scheduled posts in parallel
+    const [generatedResult, scheduledResult] = await Promise.all([
+      supabase
+        .from("linkedin_posts")
+        .select("id, topic, context, variants, created_at")
+        .eq("user_id", session.user.id)
+        .order("created_at", { ascending: false })
+        .limit(20),
+      supabase
+        .from("linkedin_scheduled_posts")
+        .select("id, content, status, scheduled_for, published_at, created_at")
+        .eq("user_id", session.user.id)
+        .order("created_at", { ascending: false })
+        .limit(20),
+    ]);
 
-    if (error) {
-      return Response.json({ error: error.message }, { status: 500 });
+    if (generatedResult.error) {
+      return Response.json({ error: generatedResult.error.message }, { status: 500 });
     }
 
-    return Response.json({ posts: data || [] });
+    // Build unified history
+    const generated = (generatedResult.data || []).map((post) => ({
+      ...post,
+      type: "generated" as const,
+    }));
+
+    const scheduled = (scheduledResult.data || []).map((post) => ({
+      ...post,
+      type: "scheduled" as const,
+    }));
+
+    // Combine and sort by created_at descending
+    const history = [...generated, ...scheduled].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+
+    return Response.json({
+      history,
+      posts: generatedResult.data || [],
+      scheduled_posts: scheduledResult.data || [],
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Internal server error";
     console.error("LinkedIn history error:", message);
