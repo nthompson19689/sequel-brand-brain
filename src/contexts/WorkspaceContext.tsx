@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 import type { Workspace } from "@/lib/workspaces";
 
 interface WorkspaceCtx {
@@ -23,6 +24,7 @@ export function useWorkspace() {
 }
 
 export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [currentWsId, setCurrentWsId] = useState<string>("");
   const [loaded, setLoaded] = useState(false);
@@ -35,8 +37,9 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const fetchWorkspaces = useCallback(async () => {
+    if (!user?.id) return;
     try {
-      const res = await fetch("/api/workspaces");
+      const res = await fetch(`/api/workspaces?user_id=${user.id}`);
       if (res.ok) {
         const data = await res.json();
         if (data.workspaces && data.workspaces.length > 0) {
@@ -48,10 +51,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
     // Fallback: empty workspace list
     setWorkspaces([]);
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
-    if (loaded) fetchWorkspaces();
+    if (loaded && user?.id) fetchWorkspaces();
   }, [loaded, fetchWorkspaces]);
 
   // Ensure currentWsId is valid
