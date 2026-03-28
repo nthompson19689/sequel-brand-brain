@@ -1,4 +1,4 @@
-import { getClaudeClient, MAX_TOKENS, resolveModel } from "@/lib/claude";
+import { getClaudeClient, resolveModel } from "@/lib/claude";
 import { getSupabaseServerClient } from "@/lib/supabase";
 import { buildSystemBlocks, logCachePerformance } from "@/lib/brand-context";
 
@@ -148,7 +148,14 @@ Then the full article in markdown.
 
 Title: 55-60 characters, primary keyword near the front.
 Word count: FOLLOW THE TARGET IN THE BRIEF EXACTLY (±10%). The FAQ section counts toward total word count. Plan your H2 sections to fit within the budget BEFORE writing.
-FAQ section required at the end: 3-5 questions as ### H3 headings (no numbers, no bold), answers 2-3 prose sentences each. Keep FAQ concise — it's roughly 200-300 words of your total budget.
+
+FAQ SECTION FORMAT (required at end of article):
+## FAQ
+### [Question in plain text, no numbers, no bold, no "Q:" prefix]
+[Answer in 2-3 plain prose sentences, self-contained]
+### [Next question]
+[Answer]
+(Repeat for 3-5 questions. Keep FAQ concise, roughly 200-300 words total.)
 
 === INTERNAL LINKS — CRITICAL ===
 You MUST include internal links to Sequel's existing content. The reader should not even notice a link exists unless they hover over it.

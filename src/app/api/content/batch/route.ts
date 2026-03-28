@@ -77,7 +77,7 @@ export async function POST(request: Request) {
 
         let gapContext = "";
         if (existingArticles.length > 0) {
-          gapContext = `\n\nOur existing content library:\n${existingArticles.slice(0, 30).map((a) => `- "${a.title}" (${a.primary_keyword})`).join("\n")}`;
+          gapContext = `\n\nOur existing content library:\n${existingArticles.slice(0, 30).map((a) => `- "${a.title}" (${a.keyword})`).join("\n")}`;
         }
 
         const briefResponse = await claude.messages.create({

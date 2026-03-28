@@ -187,13 +187,14 @@ export function scanBannedPatterns(text: string): Array<{ pattern: string; match
   ];
   const itsNotMatches: string[] = [];
   for (const regex of notAboutPatterns) {
-    for (const m of text.matchAll(regex)) {
+    const matches = Array.from(text.matchAll(regex));
+    for (const m of matches) {
       const start = Math.max(0, (m.index || 0) - 10);
       const end = Math.min(text.length, (m.index || 0) + m[0].length + 10);
       itsNotMatches.push(text.slice(start, end));
     }
   }
-  if (itsNotMatches.length > 0) violations.push({ pattern: "it's not X, it's Y / isn't about X", matches: [...new Set(itsNotMatches)], type: "construction" });
+  if (itsNotMatches.length > 0) violations.push({ pattern: "it's not X, it's Y / isn't about X", matches: Array.from(new Set(itsNotMatches)), type: "construction" });
 
   // Paragraphs — we now ALLOW 3-5 sentence paragraphs for essay depth.
   // Only flag paragraphs with 6+ sentences as genuinely too long.
@@ -282,9 +283,19 @@ export function runQualityGates(
   const totalViolations = violations.reduce((s, v) => s + v.matches.length, 0);
   gates.push({ name: "Zero Banned Patterns", passed: totalViolations === 0, detail: totalViolations === 0 ? "Clean" : `${totalViolations} violations` });
 
-  // Paragraph length (no 4+ sentence paragraphs)
-  const longParaViolation = violations.find((v) => v.pattern.includes("4+ sentences"));
-  gates.push({ name: "Max 3 Sentences/Paragraph", passed: !longParaViolation, detail: longParaViolation ? `${longParaViolation.matches.length} long paragraphs` : "Clean" });
+  // Paragraph length (6+ sentences is too long, 3-5 is fine for essay depth)
+  const longParaViolation = violations.find((v) => v.pattern.includes("6+ sentences"));
+  gates.push({ name: "No 6+ Sentence Paragraphs", passed: !longParaViolation, detail: longParaViolation ? `${longParaViolation.matches.length} overly long paragraphs` : "Clean" });
+
+  // FAQ format: must be ## FAQ with ### questions
+  const faqH2Match = text.match(/^## (?:FAQ|Frequently Asked Questions?)/m);
+  const faqH3s = text.match(/^### .+\?$/gm);
+  const faqFormatOk = !!faqH2Match && !!faqH3s && faqH3s.length >= 3;
+  gates.push({ name: "FAQ Format (H2 + H3 questions)", passed: faqFormatOk, detail: faqFormatOk ? `${faqH3s?.length || 0} H3 questions under H2` : faqH2Match ? `FAQ H2 found but ${faqH3s?.length || 0} H3 questions (need 3+)` : "Missing ## FAQ heading" });
+
+  // External citation count — these must survive editing
+  const externalCitations = internalLinks.filter((m) => m[2].startsWith("http") && !m[2].includes("sequel.io"));
+  gates.push({ name: "External Citations >= 3", passed: externalCitations.length >= 3, detail: `${externalCitations.length} external citations` });
 
   // ── Structural repetition check ──
   const h2Sections = text.split(/^## /gm).filter((s) => s.trim().length > 50);

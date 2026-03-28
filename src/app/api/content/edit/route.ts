@@ -144,8 +144,15 @@ export async function POST(request: Request) {
         `- ${url} used ${uses.length} times: ${uses.join(", ")}`
     );
   const totalLinks = linkMap.size;
+  // Count internal vs external links
+  const internalLinks = Array.from(linkMap.keys()).filter(u => u.includes("sequel.io"));
+  const externalLinks = Array.from(linkMap.keys()).filter(u => !u.includes("sequel.io"));
   const linkAnalysis =
-    `\nLINK ANALYSIS:\n- Total unique URLs linked: ${totalLinks}\n- ${totalLinks < 5 ? "WARNING: Fewer than 5 internal links. DO NOT remove any links. Flag this as a quality issue." : "Link count OK."}\n` +
+    `\nLINK ANALYSIS:\n- Total unique URLs: ${totalLinks}\n- Internal links (sequel.io): ${internalLinks.length}\n- External links (citations): ${externalLinks.length}\n` +
+    `- ${internalLinks.length < 5 ? "WARNING: Fewer than 5 internal links. DO NOT remove any." : "Internal link count OK."}\n` +
+    `- ${externalLinks.length < 3 ? "WARNING: Fewer than 3 external citations. DO NOT remove any." : "External citation count OK."}\n` +
+    `- ⚠️ EXTERNAL LINKS ARE SACRED: Every external citation URL (${externalLinks.length} total) MUST survive editing. Removing a citation destroys credibility. Count them before and after.\n` +
+    (externalLinks.length > 0 ? `- External URLs to preserve:\n${externalLinks.map(u => `  ${u}`).join("\n")}\n` : "") +
     (duplicateLinks.length > 0
       ? `- DUPLICATE LINKS (each URL should appear only once):\n${duplicateLinks.join("\n")}\n  Keep the most natural occurrence. Convert duplicates to plain text (remove the markdown link syntax but keep the words).`
       : "- No duplicate links detected.");
@@ -372,19 +379,26 @@ ${draft}`,
 
 FINAL PASS RULES:
 1. ZERO kill list phrases remaining.
-2. ZERO em dashes remaining. Use commas, periods, or restructure.
+2. ZERO em dashes remaining (including --, —, –). Use commas, periods, or restructure.
 3. ZERO colons in headings.
 4. ALL internal links preserved with correct URLs. Each URL appears only ONCE.
-5. ALL external links (citations, sources, stats) preserved. NEVER remove an external link. If the writer cited a source, that citation must survive editing.
-6. Minimum 5 unique internal links in the article. If there are fewer, DO NOT remove any.
-6. Every H2 section over 300 words has at least one ### H3.
-7. PRESERVE longer paragraphs (3-5 sentences) when they develop an argument. Only split paragraphs that are genuinely unfocused, not ones building a sustained point.
-8. Conversational tone, humor, asides fully preserved.
-9. META description and SLUG present at the top. NEVER modify the SLUG — it must match the exact primary keyword hyphenated.
-10. FAQ section present with at least 5-7 questions as ### H3 headings (no numbers, no bold). Each answer 2-4 self-contained prose sentences.
-11. At least 2 sections must have 400+ words of sustained prose. Do NOT shorten deep dive sections.
-12. Connective tissue between sections preserved or improved.
-13. Primary keyword in H1, first 100 words, and at least 2 H2 headings.
+5. ALL external links (citations, sources, stats) preserved. NEVER remove an external link. Every statistic that had a source URL in the draft MUST still have that source URL in the final version. Count external links before and after — the count must be equal or higher. Removing a citation is a HIGH SEVERITY failure.
+6. Minimum 5 unique internal links. If there are fewer, DO NOT remove any.
+7. Every H2 section over 300 words has at least one ### H3.
+8. PRESERVE longer paragraphs (3-5 sentences) when they develop an argument.
+9. Conversational tone, humor, asides fully preserved.
+10. META description and SLUG present at the top. NEVER modify the SLUG.
+11. FAQ FORMAT: The FAQ section MUST be structured as:
+    - ## FAQ (or ## Frequently Asked Questions) as the H2 heading
+    - Each question as a ### H3 heading (plain text question, NO numbers, NO bold, NO "Q:" prefix)
+    - Answer as plain prose below each ### heading (2-3 sentences, self-contained)
+    - Example format:
+      ## FAQ
+      ### Can you turn a webinar into a podcast?
+      Yes. Extract the audio, edit for flow, and publish as an episode. One hour of production, two distribution channels.
+12. At least 2 sections must have 400+ words of sustained prose. Do NOT shorten deep dive sections.
+13. Connective tissue between sections preserved or improved.
+14. Primary keyword in H1, first 100 words, and at least 2 H2 headings.
 
 Output: the final clean article ONLY. No annotations, no comments, no meta-commentary.`,
           },
