@@ -2,26 +2,107 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@layer base {
+  /* Sequel brand defaults */
+  ::selection {
+    background-color: rgba(124, 58, 237, 0.15);
+    color: #1A1025;
+  }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  /* Scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #D4C4FE;
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #B197FC;
   }
 }
 
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+/* Tiptap editor styles — Sequel branded */
+.tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: #9E99AE;
+  pointer-events: none;
+  height: 0;
 }
 
-@layer utilities {
-  .text-balance {
-    text-wrap: balance;
-  }
+.tiptap:focus {
+  outline: none;
+}
+
+.tiptap h1 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 1rem 0 0.5rem;
+  color: #1A1025;
+}
+.tiptap h2 {
+  font-size: 1.35rem;
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 0.85rem 0 0.4rem;
+  color: #1A1025;
+}
+.tiptap h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  line-height: 1.4;
+  margin: 0.75rem 0 0.35rem;
+  color: #1A1025;
+}
+.tiptap p {
+  margin: 0.4rem 0;
+  color: #1A1025;
+}
+.tiptap ul,
+.tiptap ol {
+  padding-left: 1.5rem;
+  margin: 0.4rem 0;
+}
+.tiptap ul {
+  list-style: disc;
+}
+.tiptap ol {
+  list-style: decimal;
+}
+.tiptap li {
+  margin: 0.15rem 0;
+}
+.tiptap blockquote {
+  border-left: 3px solid #D4C4FE;
+  padding-left: 1rem;
+  margin: 0.75rem 0;
+  color: #6B6680;
+  font-style: italic;
+}
+.tiptap hr {
+  border: none;
+  border-top: 1px solid #E8E5F0;
+  margin: 1rem 0;
+}
+.tiptap a {
+  color: #7C3AED;
+  text-decoration: underline;
+}
+.tiptap strong {
+  font-weight: 700;
+}
+.tiptap em {
+  font-style: italic;
+}
+.tiptap u {
+  text-decoration: underline;
+}
+.tiptap s {
+  text-decoration: line-through;
 }

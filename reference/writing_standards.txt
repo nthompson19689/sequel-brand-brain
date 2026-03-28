@@ -1,0 +1,62 @@
+ESSAY DEPTH (HIGHEST PRIORITY)
+- Write essays that happen to be optimized, not SEO listicles dressed up with personality
+- At least 2-3 sections per article must be 400+ words of sustained prose argument (deep dives)
+- Target ratio: 60% flowing prose, 25% bullet/numbered lists, 15% short punchy sections
+- A section should NOT be: H2 → intro sentence → bullet list → done
+- A section SHOULD be: multiple paragraphs developing the argument → maybe a list for specifics → more prose on what it means
+- Vary section lengths dramatically: some 100 words, some 500+ words
+- Every section must connect to the one before and after it with transitional phrases
+- The article should read as one continuous argument, not 8 independent mini-articles
+
+PARAGRAPH STRUCTURE
+- Paragraphs developing an argument should be 3-5 sentences
+- Short paragraphs (1-2 sentences) for emphasis, pivot moments, key claims only
+- Not every paragraph should be the same length — vary aggressively
+- Stay with an idea long enough to develop it before moving to the next point
+
+SEO STRUCTURE
+- H2 headings mandatory, containing semantic keyword relevance
+- Primary keyword in H1 title, first 100 words, at least 2 H2s, and meta description
+- Secondary keywords woven naturally into H2s and body text
+- H3s for long sections covering distinct sub-points
+- First paragraph under each H2 directly answers the question implied by the heading (AEO)
+- FAQ section required: 5-7 questions as natural search queries, answers 2-4 self-contained sentences
+- No colons in headings
+- No em dashes anywhere in the article
+
+VOICE & STYLE
+- No passive voice
+- No "it's not X, it's Y" constructions
+- No filler openers: "In today's world", "In the ever-evolving landscape", "It's important to note"
+- Never two consecutive sentences starting with the same word
+- No AI sign-off phrases: "In conclusion, it's clear that"
+- Sound like someone explaining their actual process, not compiling Google results
+- Acknowledge complexity honestly
+- Include specific operational details: time estimates, tool names, team configurations
+
+FORMATTING VARIETY
+- Never use the same formatting type for more than 2 consecutive sections
+- Bullet lists when: presenting 3+ parallel items, comparing options, listing features
+- Numbered lists when: presenting sequential steps, ranked items, or a process
+- Prose paragraphs when: explaining concepts, making arguments, telling a story, doing walkthroughs
+- Never convert a section to bullets just to break up text
+- Minimum 3 items in any list
+- Lists are seasoning, not the main course
+
+CITATIONS & LINKS
+- Minimum 3 verified external citations per article, linked to authoritative sources
+- Every external statistic must have a markdown link
+- Every internal link must use 2-4 word natural anchor text
+- Cut "According to a recent study by..." preambles — cite inline
+
+ANCHOR TEXT RULES
+- 2-4 words maximum — never a full sentence
+- Good: [content-led growth], [B2B conversion rates], [AI writing tools]
+- Bad: [According to a recent study by HubSpot that found], [click here to read more about]
+- The link should feel invisible in the sentence
+
+META & TECHNICAL
+- Meta title: 55-60 characters, primary keyword within first 5 words
+- Meta description: 150-160 characters, starts with an action verb, includes primary keyword
+- Slug: clean, keyword-rich, under 60 characters
+- Word count: 2,000-3,000 standard posts, 3,000-5,000 pillar content
