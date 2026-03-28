@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { createSupabaseBrowserAuthClient } from "@/lib/supabase-auth";
 
 export default function LoginPage() {
@@ -81,10 +80,7 @@ export default function LoginPage() {
       </form>
 
       <p className="text-center text-sm text-[#6B6680] mt-6">
-        Don&apos;t have an account?{" "}
-        <Link href="/signup" className="text-brand-400 hover:text-brand-300 font-medium">
-          Sign up
-        </Link>
+        This workspace is invite-only.
       </p>
     </div>
   );

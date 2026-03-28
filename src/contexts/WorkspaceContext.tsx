@@ -55,7 +55,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (loaded && user?.id) fetchWorkspaces();
-  }, [loaded, fetchWorkspaces]);
+  }, [loaded, fetchWorkspaces, user?.id]);
 
   // Ensure currentWsId is valid
   useEffect(() => {

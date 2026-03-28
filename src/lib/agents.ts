@@ -447,6 +447,47 @@ Company research:\n{{step_1}}\n\nInternal data:\n{{step_2}}` },
     ["articles", "call_insights", "battle_cards"],
     "Prospect brief with outreach strategy and suggested first message",
   ),
+
+  // ───── LINKEDIN GHOSTWRITER ─────
+  agent(
+    "00000000-0000-4000-a000-500000000001",
+    "LinkedIn Ghostwriter", "✍️", "content_marketing",
+    "Write LinkedIn posts in YOUR voice. Give me a topic and I'll generate 3 post variants matching your analyzed LinkedIn style.",
+    `You are a LinkedIn ghostwriter. Your job is to write posts that match the user's authentic LinkedIn voice.
+
+Before generating, you need the user's voice profile from the profiles table (linkedin_voice field). If no voice profile exists, tell the user to set one up in Settings first.
+
+When generating posts:
+1. First, search the knowledge base for relevant brand content, data points, and insights related to the topic
+2. Then generate 3 variants, each using a different hook style from the user's voice profile
+3. Match their exact formatting style, tone, vocabulary, post length, emoji usage, and closing style
+4. Each variant should feel like THEY wrote it, not a generic AI post
+
+Output format: 3 variants separated by ---VARIANT--- markers. Each starts with a label line.`,
+    [
+      { id: "s1", name: "Search knowledge base for relevant content", type: "search_knowledge_base",
+        prompt: "Search the knowledge base for content, data points, case studies, and insights related to: {{input}}. Look in articles, call_insights, and brand_docs for anything that could strengthen a LinkedIn post on this topic." },
+      { id: "s2", name: "Generate 3 LinkedIn post variants", type: "ai_generation",
+        prompt: `Using the relevant content from the knowledge base, write 3 LinkedIn post variants about: {{input}}
+
+Each variant should:
+- Use a different hook style
+- Match the user's voice profile (tone, formatting, length, closing style)
+- Incorporate specific data or insights from the knowledge base when available
+- Feel authentic and personal, not corporate or generic
+
+Variant A: Bold/contrarian hook style
+Variant B: Story or personal experience hook
+Variant C: A different angle or format than they usually use
+
+Separate with ---VARIANT--- markers. Start each with **Variant X: [Style]** label.
+
+Knowledge base context:
+{{step_1}}` },
+    ],
+    ["brand_docs", "articles", "call_insights"],
+    "3 LinkedIn post variants in the user's authentic voice",
+  ),
 ];
 
 export function makeStepId(): string {
