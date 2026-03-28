@@ -128,7 +128,7 @@ export default function AgentsPage() {
               <div className="mb-8">
                 <div className="flex items-center gap-2 mb-3">
                   <span className="text-base">🛠️</span>
-                  <h2 className="text-sm font-semibold text-heading uppercase tracking-wider">Custom Agents</h2>
+                  <h2 className="text-sm font-semibold text-heading uppercase tracking-wider">My Agents</h2>
                   <span className="text-xs text-body bg-gray-100 rounded-full px-2 py-0.5">{customAgents.length}</span>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

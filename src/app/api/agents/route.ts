@@ -105,8 +105,8 @@ export async function GET(request: NextRequest) {
     .order("created_at", { ascending: true });
 
   if (workspaceId) {
-    // Show agents belonging to this workspace OR shared agents (is_shared = true)
-    query = query.or(`workspace_id.eq.${workspaceId},is_shared.eq.true`);
+    // Show agents belonging to this workspace OR shared agents OR built-in agents
+    query = query.or(`workspace_id.eq.${workspaceId},is_shared.eq.true,is_builtin.eq.true`);
   }
 
   const { data, error } = await query;
