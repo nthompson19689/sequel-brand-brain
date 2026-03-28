@@ -1,20 +1,9 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
-import {
-  DEMO_USERS,
-  DEMO_WORKSPACES,
-  DEMO_MEMBERS,
-  type Workspace,
-  type DemoUser,
-} from "@/lib/workspaces";
+import type { Workspace } from "@/lib/workspaces";
 
 interface WorkspaceCtx {
-  // Current user
-  currentUser: DemoUser;
-  setCurrentUser: (u: DemoUser) => void;
-  allUsers: DemoUser[];
-
   // Workspaces
   workspaces: Workspace[];
   currentWorkspace: Workspace | null;
@@ -34,38 +23,20 @@ export function useWorkspace() {
 }
 
 export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
-  const [currentUser, setCurrentUserState] = useState<DemoUser>(DEMO_USERS[0]);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [currentWsId, setCurrentWsId] = useState<string>("");
   const [loaded, setLoaded] = useState(false);
 
   // Load from localStorage
   useEffect(() => {
-    const savedUser = localStorage.getItem("sequel-user");
     const savedWs = localStorage.getItem("sequel-workspace");
-    if (savedUser) {
-      try {
-        const u = JSON.parse(savedUser);
-        const found = DEMO_USERS.find((du) => du.id === u.id);
-        if (found) setCurrentUserState(found);
-      } catch { /* */ }
-    }
     if (savedWs) setCurrentWsId(savedWs);
     setLoaded(true);
   }, []);
 
-  const setCurrentUser = useCallback((u: DemoUser) => {
-    setCurrentUserState(u);
-    localStorage.setItem("sequel-user", JSON.stringify(u));
-    // Switch to user's personal workspace
-    const personalWs = `ws-${u.id}`;
-    setCurrentWsId(personalWs);
-    localStorage.setItem("sequel-workspace", personalWs);
-  }, []);
-
   const fetchWorkspaces = useCallback(async () => {
     try {
-      const res = await fetch(`/api/workspaces?user_id=${currentUser.id}`);
+      const res = await fetch("/api/workspaces");
       if (res.ok) {
         const data = await res.json();
         if (data.workspaces && data.workspaces.length > 0) {
@@ -75,16 +46,9 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       }
     } catch { /* fallback below */ }
 
-    // Fallback: use demo data filtered by user membership
-    const memberWsIds = new Set(
-      DEMO_MEMBERS.filter((m) => m.user_id === currentUser.id).map((m) => m.workspace_id)
-    );
-    const userWs = DEMO_WORKSPACES.filter((ws) => memberWsIds.has(ws.id)).map((ws) => ({
-      ...ws,
-      created_at: new Date().toISOString(),
-    }));
-    setWorkspaces(userWs);
-  }, [currentUser.id]);
+    // Fallback: empty workspace list
+    setWorkspaces([]);
+  }, []);
 
   useEffect(() => {
     if (loaded) fetchWorkspaces();
@@ -111,9 +75,6 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   return (
     <Ctx.Provider
       value={{
-        currentUser,
-        setCurrentUser,
-        allUsers: DEMO_USERS,
         workspaces,
         currentWorkspace,
         switchWorkspace,

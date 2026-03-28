@@ -3,13 +3,15 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
+import { useAuth } from "@/contexts/AuthContext";
 
 const ICONS = ["🏠", "📣", "💼", "🎯", "🚀", "⚡", "🧠", "🌐", "🎨", "📊", "🔬", "💡"];
 const COLORS = ["#7C3AED", "#EC4899", "#8B5CF6", "#059669", "#6366F1", "#DC2626", "#F59E0B", "#0EA5E9", "#14B8A6"];
 
 export default function WorkspaceSettingsPage() {
   const router = useRouter();
-  const { currentUser, allUsers, currentWorkspace, refreshWorkspaces } = useWorkspace();
+  const { currentWorkspace, refreshWorkspaces } = useWorkspace();
+  const { user } = useAuth();
 
   const [mode, setMode] = useState<"view" | "create" | "edit">(currentWorkspace ? "view" : "create");
   const [name, setName] = useState("");
@@ -44,7 +46,7 @@ export default function WorkspaceSettingsPage() {
       const body: Record<string, unknown> = {
         name: name.trim(),
         icon, color, type,
-        created_by: currentUser.id,
+        created_by: user?.id || "",
         members: type === "team" ? members : [],
       };
       if (mode === "edit" && currentWorkspace) {
@@ -74,11 +76,7 @@ export default function WorkspaceSettingsPage() {
     router.push("/chat");
   }
 
-  function toggleMember(uid: string) {
-    setMembers((prev) =>
-      prev.includes(uid) ? prev.filter((m) => m !== uid) : [...prev, uid]
-    );
-  }
+  // Member management will be handled via invite links in the future
 
   return (
     <div className="p-8 max-w-2xl">
@@ -220,30 +218,7 @@ export default function WorkspaceSettingsPage() {
             {type === "team" && (
               <div>
                 <label className="text-sm font-medium text-heading block mb-1.5">Members</label>
-                <div className="space-y-2">
-                  {allUsers.filter((u) => u.id !== currentUser.id).map((u) => (
-                    <button
-                      key={u.id}
-                      onClick={() => toggleMember(u.id)}
-                      className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-colors text-left ${
-                        members.includes(u.id) ? "border-brand-400 bg-brand-50" : "border-border hover:border-brand-200"
-                      }`}
-                    >
-                      <div className="w-8 h-8 rounded-full bg-brand-500 flex items-center justify-center text-white text-xs font-semibold">
-                        {u.avatar}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-heading">{u.name}</p>
-                        <p className="text-xs text-body">{u.role}</p>
-                      </div>
-                      {members.includes(u.id) && (
-                        <svg className="w-5 h-5 text-brand-500" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                        </svg>
-                      )}
-                    </button>
-                  ))}
-                </div>
+                <p className="text-xs text-body mb-2">Member management coming soon. Workspace members will be managed via invite links.</p>
               </div>
             )}
 

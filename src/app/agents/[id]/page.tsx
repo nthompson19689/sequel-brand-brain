@@ -82,9 +82,26 @@ export default function AgentRunnerPage() {
   const [copied, setCopied] = useState(false);
 
   // History tab
-  const [activeTab, setActiveTab] = useState<"run" | "history">("run");
+  const [activeTab, setActiveTab] = useState<"run" | "history" | "feedback">("run");
   const [history, setHistory] = useState<HistoryOutput[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+
+  // Feedback tab
+  interface FeedbackItem {
+    id: string;
+    feedback_type: string;
+    explicit_feedback: string | null;
+    patterns_detected: string[] | null;
+    original_output: string | null;
+    edited_output: string | null;
+    applied: boolean;
+    created_at: string;
+  }
+  const [feedbackItems, setFeedbackItems] = useState<FeedbackItem[]>([]);
+  const [feedbackLoading, setFeedbackLoading] = useState(false);
+  const [showApplyModal, setShowApplyModal] = useState(false);
+  const [applyingFeedback, setApplyingFeedback] = useState(false);
+  const [appliedPreview, setAppliedPreview] = useState<{ updatedPrompt: string; changes: string[] } | null>(null);
 
   // Feedback
   const [originalOutput, setOriginalOutput] = useState(""); // snapshot for diff tracking
@@ -148,6 +165,80 @@ export default function AgentRunnerPage() {
   useEffect(() => {
     fetchHistory();
   }, [fetchHistory]);
+
+  // Load feedback for this agent
+  const fetchFeedback = useCallback(async () => {
+    const id = params.id as string;
+    if (!id) return;
+    setFeedbackLoading(true);
+    try {
+      const res = await fetch(`/api/feedback?agent_id=${id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setFeedbackItems(data.feedback || []);
+      }
+    } catch { /* ignore */ }
+    setFeedbackLoading(false);
+  }, [params.id]);
+
+  useEffect(() => {
+    fetchFeedback();
+  }, [fetchFeedback]);
+
+  // Apply pending feedback to agent prompt
+  async function handleApplyFeedback() {
+    if (!agent) return;
+    setApplyingFeedback(true);
+    try {
+      const res = await fetch("/api/feedback/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agent_id: agent.id }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAppliedPreview({
+          updatedPrompt: data.updated_prompt || "",
+          changes: data.changes || [],
+        });
+      }
+    } catch { /* ignore */ }
+    setApplyingFeedback(false);
+  }
+
+  // Save updated prompt after applying feedback
+  async function handleSaveAppliedPrompt() {
+    if (!agent || !appliedPreview) return;
+    try {
+      // Save the updated prompt to the agent
+      await fetch("/api/agents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...agent,
+          system_prompt: appliedPreview.updatedPrompt,
+        }),
+      });
+
+      // Mark all pending feedback as applied
+      const pendingIds = feedbackItems.filter((f) => !f.applied).map((f) => f.id);
+      if (pendingIds.length > 0) {
+        await fetch("/api/feedback", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids: pendingIds, applied: true }),
+        });
+      }
+
+      // Update local agent state
+      setAgent({ ...agent, system_prompt: appliedPreview.updatedPrompt });
+      setShowApplyModal(false);
+      setAppliedPreview(null);
+      fetchFeedback();
+    } catch { /* ignore */ }
+  }
+
+  const pendingFeedbackCount = feedbackItems.filter((f) => !f.applied).length;
 
   function toggleStep(index: number) {
     setExpandedSteps((prev) => {
@@ -578,6 +669,17 @@ export default function AgentRunnerPage() {
             <p className="text-sm text-gray-500 truncate">{agent.description}</p>
           </div>
           <div className="text-xs text-gray-400">{agent.steps.length} steps</div>
+          {pendingFeedbackCount > 0 && (
+            <button
+              onClick={() => { setShowApplyModal(true); handleApplyFeedback(); }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-brand-700 bg-brand-100 rounded-lg hover:bg-brand-200 transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z" />
+              </svg>
+              Review &amp; Apply Feedback ({pendingFeedbackCount})
+            </button>
+          )}
         </div>
       </div>
 
@@ -607,11 +709,178 @@ export default function AgentRunnerPage() {
               <span className="text-[10px] bg-gray-100 text-gray-600 rounded-full px-1.5 py-0.5">{history.length}</span>
             )}
           </button>
+          <button
+            onClick={() => { setActiveTab("feedback"); fetchFeedback(); }}
+            className={`py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
+              activeTab === "feedback"
+                ? "border-brand-500 text-brand-600"
+                : "border-transparent text-gray-500 hover:text-gray-700"
+            }`}
+          >
+            Feedback
+            {feedbackItems.length > 0 && (
+              <span className="text-[10px] bg-gray-100 text-gray-600 rounded-full px-1.5 py-0.5">{feedbackItems.length}</span>
+            )}
+          </button>
         </div>
       </div>
 
+      {/* Apply Feedback Modal */}
+      {showApplyModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => { setShowApplyModal(false); setAppliedPreview(null); }}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-gray-900">Review &amp; Apply Feedback</h2>
+              <button onClick={() => { setShowApplyModal(false); setAppliedPreview(null); }} className="text-gray-400 hover:text-gray-600">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="px-6 py-4">
+              {applyingFeedback ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+                  <span className="ml-3 text-sm text-gray-500">Analyzing feedback and generating updated prompt...</span>
+                </div>
+              ) : appliedPreview ? (
+                <div className="space-y-4">
+                  {appliedPreview.changes.length > 0 && (
+                    <div>
+                      <h3 className="text-sm font-medium text-gray-700 mb-2">Changes to be applied:</h3>
+                      <ul className="space-y-1">
+                        {appliedPreview.changes.map((change, i) => (
+                          <li key={i} className="flex items-start gap-2 text-sm text-gray-600">
+                            <svg className="w-4 h-4 text-brand-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                            </svg>
+                            {change}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  <div>
+                    <h3 className="text-sm font-medium text-gray-700 mb-2">Updated Prompt Preview:</h3>
+                    <div className="bg-gray-50 rounded-xl border border-gray-200 p-4 max-h-[300px] overflow-y-auto">
+                      <pre className="text-xs text-gray-700 whitespace-pre-wrap font-mono">{appliedPreview.updatedPrompt}</pre>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3 pt-2">
+                    <button
+                      onClick={handleSaveAppliedPrompt}
+                      className="px-5 py-2.5 text-sm font-medium text-white bg-brand-500 rounded-xl hover:bg-brand-600 transition-colors"
+                    >
+                      Save Updated Prompt
+                    </button>
+                    <button
+                      onClick={() => { setShowApplyModal(false); setAppliedPreview(null); }}
+                      className="px-5 py-2.5 text-sm font-medium text-gray-600 hover:text-gray-800 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <p className="text-sm text-gray-500">No feedback to apply.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main area */}
-      {activeTab === "history" ? (
+      {activeTab === "feedback" ? (
+        <div className="flex-1 overflow-y-auto px-6 py-6">
+          <div className="max-w-3xl mx-auto">
+            {feedbackLoading ? (
+              <div className="flex items-center justify-center py-16">
+                <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : feedbackItems.length === 0 ? (
+              <div className="text-center py-16">
+                <div className="w-14 h-14 mx-auto bg-brand-50 rounded-2xl flex items-center justify-center mb-4">
+                  <svg className="w-7 h-7 text-brand-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 0 1 1.037-.443 48.3 48.3 0 0 0 5.862-.498c1.585-.233 2.708-1.626 2.708-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" />
+                  </svg>
+                </div>
+                <h3 className="text-sm font-medium text-heading">No feedback yet</h3>
+                <p className="mt-1 text-xs text-body">Run this agent and provide feedback to improve it over time.</p>
+              </div>
+            ) : (
+              <>
+                {/* Stats line */}
+                <div className="mb-4 flex items-center gap-4 text-xs text-gray-500">
+                  <span>{feedbackItems.length} total feedback items</span>
+                  <span>{pendingFeedbackCount} pending</span>
+                  {feedbackItems.find((f) => f.applied) && (
+                    <span>
+                      Last applied: {new Date(
+                        feedbackItems.filter((f) => f.applied).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]?.created_at
+                      ).toLocaleDateString()}
+                    </span>
+                  )}
+                </div>
+
+                {/* Feedback items */}
+                <div className="space-y-3">
+                  {feedbackItems.map((f) => {
+                    const date = new Date(f.created_at);
+                    const typeBadge =
+                      f.feedback_type === "thumbs_up" ? "bg-emerald-100 text-emerald-700" :
+                      f.feedback_type === "thumbs_down" ? "bg-red-100 text-red-700" :
+                      f.feedback_type === "edit_diff" ? "bg-blue-100 text-blue-700" :
+                      "bg-purple-100 text-purple-700";
+                    const typeLabel =
+                      f.feedback_type === "thumbs_up" ? "Thumbs Up" :
+                      f.feedback_type === "thumbs_down" ? "Thumbs Down" :
+                      f.feedback_type === "edit_diff" ? "Edit Diff" :
+                      "Explicit";
+
+                    return (
+                      <div
+                        key={f.id}
+                        className="p-4 bg-white rounded-xl border border-border hover:border-gray-300 transition-all"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-center gap-2">
+                            <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${typeBadge}`}>
+                              {typeLabel}
+                            </span>
+                            <span className="text-[10px] text-gray-400">
+                              {date.toLocaleDateString()} {date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                            </span>
+                          </div>
+                          <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
+                            f.applied ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+                          }`}>
+                            {f.applied ? "Applied" : "Pending"}
+                          </span>
+                        </div>
+                        {f.explicit_feedback && (
+                          <p className="mt-2 text-sm text-gray-700">{f.explicit_feedback}</p>
+                        )}
+                        {f.patterns_detected && f.patterns_detected.length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {f.patterns_detected.map((p, i) => (
+                              <span key={i} className="text-[10px] bg-gray-100 text-gray-600 rounded px-1.5 py-0.5">{p}</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      ) : activeTab === "history" ? (
         <div className="flex-1 overflow-y-auto px-6 py-6">
           <div className="max-w-3xl mx-auto">
             {historyLoading ? (

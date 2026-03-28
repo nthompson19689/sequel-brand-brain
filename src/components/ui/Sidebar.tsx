@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { useWorkspace } from "@/contexts/WorkspaceContext";
+import { useAuth } from "@/contexts/AuthContext";
 
 const navItems = [
   {
@@ -70,16 +71,25 @@ const navItems = [
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const { currentUser, setCurrentUser, allUsers, workspaces, currentWorkspace, switchWorkspace } = useWorkspace();
+  const { workspaces, currentWorkspace, switchWorkspace } = useWorkspace();
+  const { profile, signOut } = useAuth();
   const [wsOpen, setWsOpen] = useState(false);
-  const [userOpen, setUserOpen] = useState(false);
+
+  const displayName = profile?.full_name || "User";
+  const displayRole = profile?.role || "Member";
+  const initials = displayName
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
 
   return (
     <aside className="w-60 bg-[#0F0A1A] text-[#A09CB0] flex flex-col h-screen fixed left-0 top-0 z-40">
       {/* Workspace switcher */}
       <div className="relative">
         <button
-          onClick={() => { setWsOpen(!wsOpen); setUserOpen(false); }}
+          onClick={() => setWsOpen(!wsOpen)}
           className="w-full px-4 py-3.5 border-b border-[#2A2040] flex items-center gap-2.5 hover:bg-[#1A1228] transition-colors text-left"
         >
           <div
@@ -180,47 +190,24 @@ export default function Sidebar() {
         })}
       </nav>
 
-      {/* User switcher at bottom */}
-      <div className="relative border-t border-[#2A2040]">
+      {/* User info + Sign Out */}
+      <div className="border-t border-[#2A2040] px-4 py-3 flex items-center gap-2.5">
+        <div className="w-8 h-8 rounded-full bg-brand-500 flex items-center justify-center text-white text-xs font-semibold">
+          {initials}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm text-white font-medium truncate">{displayName}</p>
+          <p className="text-[10px] text-[#6B6680] truncate">{displayRole}</p>
+        </div>
         <button
-          onClick={() => { setUserOpen(!userOpen); setWsOpen(false); }}
-          className="w-full px-4 py-3 flex items-center gap-2.5 hover:bg-[#1A1228] transition-colors text-left"
+          onClick={signOut}
+          title="Sign out"
+          className="p-1.5 rounded-md text-[#6B6680] hover:bg-[#1A1228] hover:text-white transition-colors"
         >
-          <div className="w-8 h-8 rounded-full bg-brand-500 flex items-center justify-center text-white text-xs font-semibold">
-            {currentUser.avatar}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm text-white font-medium truncate">{currentUser.name}</p>
-            <p className="text-[10px] text-[#6B6680] truncate">{currentUser.role}</p>
-          </div>
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" />
+          </svg>
         </button>
-
-        {userOpen && (
-          <div className="absolute bottom-full left-0 w-full bg-[#1A1228] border-t border-[#2A2040] shadow-2xl z-50">
-            {allUsers.map((u) => (
-              <button
-                key={u.id}
-                onClick={() => { setCurrentUser(u); setUserOpen(false); }}
-                className={`w-full flex items-center gap-2.5 px-4 py-2.5 text-left hover:bg-[#241C34] transition-colors ${
-                  currentUser.id === u.id ? "bg-[#241C34]" : ""
-                }`}
-              >
-                <div className="w-7 h-7 rounded-full bg-brand-500 flex items-center justify-center text-white text-[10px] font-semibold">
-                  {u.avatar}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-white">{u.name}</p>
-                  <p className="text-[10px] text-[#6B6680]">{u.role}</p>
-                </div>
-                {currentUser.id === u.id && (
-                  <svg className="w-4 h-4 text-brand-400" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                  </svg>
-                )}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
     </aside>
   );
