@@ -190,3 +190,10 @@ Sequel has an existing MCP server with brand guidelines and event transcripts. W
 - MCP provides brand voice and guidelines (the protected layer)
 - Supabase continues to provide searchable content (articles, calls, battle cards)
 - Both sources feed into every agent and chat interaction
+
+## Deployment Rule
+After completing any task for this project, always run these commands automatically:
+git add -A
+git commit -m "[brief description of what was changed]"
+git push
+This pushes the changes to GitHub and Vercel auto-deploys within 60 seconds. Never skip this step. Never ask for permission — just do it.
