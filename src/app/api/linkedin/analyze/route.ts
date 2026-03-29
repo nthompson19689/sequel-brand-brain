@@ -79,6 +79,8 @@ export async function POST(request: Request) {
         return handleAddSample(body, session.user.id);
       case "remove_sample":
         return handleRemoveSample(body, session.user.id);
+      case "save_refinement":
+        return handleSaveRefinement(body, session.user.id);
       default:
         return Response.json({ error: `Unknown action: ${action}` }, { status: 400 });
     }
@@ -366,6 +368,50 @@ async function handleRemoveSample(body: Record<string, unknown>, userId: string)
   const { error } = await supabase
     .from("profiles")
     .update({ linkedin_samples: updated })
+    .eq("id", userId);
+
+  if (error) {
+    return Response.json({ error: error.message }, { status: 500 });
+  }
+
+  return Response.json({ saved: true, count: updated.length });
+}
+
+// ─── action="save_refinement" ─────────────────────────────────────────────────
+
+async function handleSaveRefinement(body: Record<string, unknown>, userId: string) {
+  const { original, edited } = body;
+  if (!original || typeof original !== "string" || !edited || typeof edited !== "string") {
+    return Response.json({ error: "original and edited strings are required" }, { status: 400 });
+  }
+
+  // Don't save if nothing changed
+  if (original.trim() === edited.trim()) {
+    return Response.json({ saved: false, message: "No changes detected" });
+  }
+
+  const supabase = getSupabaseServerClient();
+  if (!supabase) {
+    return Response.json({ error: "Supabase not configured" }, { status: 503 });
+  }
+
+  // Load existing refinements
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("linkedin_refinements")
+    .eq("id", userId)
+    .single();
+
+  const existing = Array.isArray(profile?.linkedin_refinements)
+    ? (profile.linkedin_refinements as Array<{ original: string; edited: string }>)
+    : [];
+
+  // Keep last 20 refinements max
+  const updated = [...existing, { original: original.trim(), edited: edited.trim() }].slice(-20);
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({ linkedin_refinements: updated })
     .eq("id", userId);
 
   if (error) {

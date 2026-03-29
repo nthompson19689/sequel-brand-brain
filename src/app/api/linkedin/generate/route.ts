@@ -28,7 +28,7 @@ export async function POST(request: Request) {
 
     const { data: profile } = await supabase
       .from("profiles")
-      .select("linkedin_voice, linkedin_samples")
+      .select("linkedin_voice, linkedin_samples, linkedin_refinements")
       .eq("id", session.user.id)
       .single();
 
@@ -40,8 +40,8 @@ export async function POST(request: Request) {
     }
 
     const voice = profile.linkedin_voice as Record<string, unknown>;
-    const hookStyles = (voice.hook_styles as string[]) || ["bold statement", "personal story", "surprising question"];
     const samples = (profile.linkedin_samples as string[]) || [];
+    const refinements = (profile.linkedin_refinements as Array<{ original: string; edited: string }>) || [];
 
     // Build example posts section — this is the most important part for voice matching
     const examplesSection = samples.length > 0
@@ -53,18 +53,33 @@ ${samples.slice(0, 3).map((s, i) => `--- Example ${i + 1} ---\n${s}`).join("\n\n
 ^^^ The examples above are MORE IMPORTANT than the voice description below. Study the exact word choices, sentence structures, paragraph lengths, and formatting patterns in these examples and replicate them.`
       : "";
 
+    // Build refinements section — these show the user's editing preferences
+    const refinementsSection = refinements.length > 0
+      ? `=== REFINEMENT HISTORY (LEARN FROM THESE EDITS) ===
+The user has edited previous AI-generated posts. Study what they changed to understand their preferences. Apply these patterns to all future posts.
+
+${refinements.slice(-5).map((r, i) => `--- Edit ${i + 1} ---
+BEFORE (AI generated):
+${r.original}
+
+AFTER (user's preferred version):
+${r.edited}
+`).join("\n")}
+^^^ Pay close attention to what the user changed: wording, length, structure, tone. Apply these preferences going forward.`
+      : "";
+
     // Build system prompt with voice profile
     const voiceInstructions = `You are a LinkedIn ghostwriter. You write posts that perfectly match this person's authentic voice.
 
 ${examplesSection}
 
+${refinementsSection}
+
 === VOICE PROFILE (Style Rules) ===
 Voice Summary: ${voice.voice_summary || "Professional, engaging LinkedIn writer"}
-Hook Styles: ${hookStyles.join(", ")}
 Tone: ${Array.isArray(voice.tone) ? (voice.tone as string[]).join(", ") : "professional, conversational"}
 Formatting Patterns: ${Array.isArray(voice.formatting_patterns) ? (voice.formatting_patterns as string[]).join("; ") : "short paragraphs, line breaks between ideas"}
 Closing Style: ${voice.closing_style || "ends with a question or call to action"}
-Post Length: ${voice.post_length || "medium (150-200 words)"}
 Emoji Usage: ${voice.emoji_usage || "minimal"}
 Hashtag Usage: ${voice.hashtag_usage || "none"}
 Signature Phrases: ${Array.isArray(voice.signature_phrases) ? (voice.signature_phrases as string[]).join(", ") : "none identified"}
@@ -74,31 +89,31 @@ Common Topics: ${Array.isArray(voice.common_topics) ? (voice.common_topics as st
 - Write in first person as this person
 - Match their exact formatting style (paragraph length, line breaks, emphasis patterns)
 - Match their tone and vocabulary level
-- Match their typical post length
 - Use emojis only if they typically do, and in the same way
 - Use hashtags only if they typically do, and in the same way
 - Each variant should feel like THEY wrote it, not a generic AI post
 - Separate each variant with the exact marker: ---VARIANT---
-- Start each variant with a label line: "**Variant A: [Hook Style]**" then a blank line, then the post
+- Start each variant with a label line: "**Variant A: Short & Punchy**" then a blank line, then the post
+- CRITICAL: Each variant must be a DIFFERENT LENGTH as specified below
 
 === OUTPUT FORMAT ===
-Write exactly 3 variants separated by ---VARIANT--- markers.
+Write exactly 3 variants separated by ---VARIANT--- markers. Each variant must be a distinctly different length:
 
-**Variant A: ${hookStyles[0] || "Bold Statement"}**
+**Variant A: Short & Punchy**
 
-[Post using hook style 1]
-
----VARIANT---
-
-**Variant B: ${hookStyles[1] || "Story-Driven"}**
-
-[Post using hook style 2]
+[A concise, punchy post — 50-80 words max. Get straight to the point. One strong idea, no fluff. Think: a single powerful insight or hot take.]
 
 ---VARIANT---
 
-**Variant C: Different Angle**
+**Variant B: Medium**
 
-[Post using a format/angle they don't usually use - something fresh but still in their voice]`;
+[A well-developed post — 120-180 words. Room to tell a brief story or develop an argument with 2-3 supporting points. This is the standard LinkedIn post length.]
+
+---VARIANT---
+
+**Variant C: Long & In-Depth**
+
+[A longer, more informative post — 250-350 words. Tell a fuller story, share a detailed framework, or walk through a lesson with examples. This should feel like a mini-article that gives readers real substance.]`;
 
     const { blocks: systemBlocks } = await buildSystemBlocks({
       additionalContext: voiceInstructions,

@@ -68,6 +68,8 @@ export default function LinkedInPage() {
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [publishedIdxs, setPublishedIdxs] = useState<Set<number>>(new Set());
   const [savedDraftIdxs, setSavedDraftIdxs] = useState<Set<number>>(new Set());
+  const [savedEditIdxs, setSavedEditIdxs] = useState<Set<number>>(new Set());
+  const [savingEditIdx, setSavingEditIdx] = useState<number | null>(null);
   const [articles, setArticles] = useState<ContentArticle[]>([]);
   const [toast, setToast] = useState<string | null>(null);
   const streamRef = useRef<AbortController | null>(null);
@@ -149,6 +151,7 @@ export default function LinkedInPage() {
     setGenError(null);
     setPublishedIdxs(new Set());
     setSavedDraftIdxs(new Set());
+    setSavedEditIdxs(new Set());
 
     const controller = new AbortController();
     streamRef.current = controller;
@@ -257,6 +260,32 @@ export default function LinkedInPage() {
     } catch {
       showToast("Failed to save draft.");
     }
+  }
+
+  async function handleSaveEdit(idx: number) {
+    const original = variants[idx]?.content ?? "";
+    const edited = editedVariants[idx];
+    if (!edited || original.trim() === edited.trim()) {
+      showToast("No changes to save.");
+      return;
+    }
+    setSavingEditIdx(idx);
+    try {
+      const res = await fetch("/api/linkedin/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "save_refinement", original, edited }),
+      });
+      if (res.ok) {
+        setSavedEditIdxs((prev) => { const next = new Set(Array.from(prev)); next.add(idx); return next; });
+        showToast("Edit saved — future posts will learn from this.");
+      } else {
+        showToast("Failed to save edit.");
+      }
+    } catch {
+      showToast("Failed to save edit.");
+    }
+    setSavingEditIdx(null);
   }
 
   /* ───── Voice Profile handlers ───── */
@@ -716,6 +745,20 @@ export default function LinkedInPage() {
                                 </svg>
                                 {isDraftSaved ? "Saved" : "Save as Draft"}
                               </button>
+
+                              {/* Save Edit button — only shows when user has made edits */}
+                              {editedVariants[idx] !== undefined && editedVariants[idx] !== variants[idx]?.content && (
+                                <button
+                                  onClick={() => handleSaveEdit(idx)}
+                                  disabled={savedEditIdxs.has(idx) || savingEditIdx === idx}
+                                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-amber-400 hover:text-amber-300 border border-amber-800/40 rounded-lg hover:bg-amber-900/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                >
+                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 0 0-2.455 2.456Z" />
+                                  </svg>
+                                  {savingEditIdx === idx ? "Saving..." : savedEditIdxs.has(idx) ? "Edit Saved" : "Save Edit to Refine Voice"}
+                                </button>
+                              )}
                             </div>
                           </div>
                         );
