@@ -321,7 +321,7 @@ function DraggableBox({
   if (!interactive) {
     // Non-interactive: just position absolutely
     return (
-      <div style={{ position: "absolute", left: px, top: py, width: pw, height: ph, overflow: "hidden" }}>
+      <div style={{ position: "absolute", left: px, top: py, width: pw, height: ph, overflow: "visible" }}>
         {children}
       </div>
     );
@@ -537,6 +537,54 @@ function SlideCanvas({
     onChange({ ...slide, columns });
   };
 
+  // ── Table: add/remove rows and columns ──
+  const addTableRow = () => {
+    if (!onChange) return;
+    const columns = (slide.columns || []).map((col) => ({ ...col, rows: [...col.rows, ""] }));
+    onChange({ ...slide, columns });
+  };
+  const removeTableRow = (ri: number) => {
+    if (!onChange) return;
+    const columns = (slide.columns || []).map((col) => ({ ...col, rows: col.rows.filter((_, i) => i !== ri) }));
+    onChange({ ...slide, columns });
+  };
+  const addTableColumn = () => {
+    if (!onChange) return;
+    const columns = [...(slide.columns || [])];
+    const maxRows = Math.max(...columns.map((c) => c.rows.length), 1);
+    columns.push({ header: "New Column", rows: Array(maxRows).fill("") });
+    onChange({ ...slide, columns });
+  };
+  const removeTableColumn = (ci: number) => {
+    if (!onChange) return;
+    const columns = (slide.columns || []).filter((_, i) => i !== ci);
+    if (columns.length >= 1) onChange({ ...slide, columns });
+  };
+
+  // ── Cards: add/remove ──
+  const addCard = () => {
+    if (!onChange) return;
+    const cards = [...(slide.cards || []), { icon: "✨", title: "New Card", body: "" }];
+    onChange({ ...slide, cards });
+  };
+  const removeCard = (ci: number) => {
+    if (!onChange) return;
+    const cards = (slide.cards || []).filter((_, i) => i !== ci);
+    if (cards.length >= 1) onChange({ ...slide, cards });
+  };
+
+  // ── Stats: add/remove ──
+  const addStat = () => {
+    if (!onChange) return;
+    const stats = [...(slide.stats || []), { value: "0", label: "New Metric" }];
+    onChange({ ...slide, stats });
+  };
+  const removeStat = (si: number) => {
+    if (!onChange) return;
+    const stats = (slide.stats || []).filter((_, i) => i !== si);
+    if (stats.length >= 1) onChange({ ...slide, stats });
+  };
+
   // Base canvas style (16:9 aspect ratio)
   const canvasStyle: React.CSSProperties = {
     width: `${960 * sc}px`,
@@ -643,6 +691,8 @@ function SlideCanvas({
   // ── Three Cards ──
   if (slide.layout === "three_cards") {
     const cards = slide.cards || [{ icon: "🎯", title: "Card 1", body: "Description" }, { icon: "📊", title: "Card 2", body: "Description" }, { icon: "🚀", title: "Card 3", body: "Description" }];
+    const cardW = Math.min(28, 90 / cards.length - 2);
+    const cardGap = (90 - cardW * cards.length) / (cards.length + 1);
     return (
       <div style={canvasStyle}>
         <DraggableBox elementKey="title" defaultPos={{ x: 7, y: 6, w: 86, h: 12 }} positions={slide.positions} onPositionChange={handlePosChange} canvasWidth={cw} canvasHeight={ch} interactive={interactive}>
@@ -654,12 +704,17 @@ function SlideCanvas({
           )}
         </DraggableBox>
         {cards.map((card, ci) => (
-          <DraggableBox key={ci} elementKey={`card-${ci}`} defaultPos={{ x: 5 + ci * 32, y: 24, w: 28, h: 68 }} positions={slide.positions} onPositionChange={handlePosChange} canvasWidth={cw} canvasHeight={ch} interactive={interactive}>
+          <DraggableBox key={ci} elementKey={`card-${ci}`} defaultPos={{ x: 5 + cardGap + ci * (cardW + cardGap), y: 24, w: cardW, h: 65 }} positions={slide.positions} onPositionChange={handlePosChange} canvasWidth={cw} canvasHeight={ch} interactive={interactive}>
             <div style={{
               width: "100%", height: "100%", background: dark ? "rgba(255,255,255,0.08)" : "#f9fafb",
               borderRadius: `${12 * sc}px`, padding: `${24 * sc}px ${20 * sc}px`,
-              borderTop: `${3 * sc}px solid ${colors.accent}`, boxSizing: "border-box",
+              borderTop: `${3 * sc}px solid ${colors.accent}`, boxSizing: "border-box", position: "relative",
             }}>
+              {editable && cards.length > 1 && (
+                <button onClick={(e) => { e.stopPropagation(); removeCard(ci); }}
+                  style={{ position: "absolute", top: 6, right: 8, color: dark ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.25)", fontSize: `${11 * sc}px`, cursor: "pointer" }}
+                  title="Remove card">✕</button>
+              )}
               {editable ? (
                 <>
                   <EditableText onFocusChange={handleFocusChange} value={card.icon} onChange={(v) => editCard(ci, "icon", v)}
@@ -679,6 +734,19 @@ function SlideCanvas({
             </div>
           </DraggableBox>
         ))}
+        {/* Add card button */}
+        {editable && cards.length < 5 && (
+          <DraggableBox elementKey="add-card" defaultPos={{ x: 5 + cardGap + cards.length * (cardW + cardGap), y: 40, w: 8, h: 20 }} positions={slide.positions} onPositionChange={handlePosChange} canvasWidth={cw} canvasHeight={ch} interactive={interactive}>
+            <button onClick={(e) => { e.stopPropagation(); addCard(); }}
+              style={{
+                width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center",
+                border: `2px dashed ${dark ? "rgba(255,255,255,0.2)" : "#d1d5db"}`, borderRadius: `${12 * sc}px`, cursor: "pointer",
+                fontSize: `${24 * sc}px`, color: dark ? "rgba(255,255,255,0.3)" : "#9ca3af",
+                background: "transparent",
+              }}
+              title="Add card">+</button>
+          </DraggableBox>
+        )}
       </div>
     );
   }
@@ -687,6 +755,7 @@ function SlideCanvas({
   if (slide.layout === "stats_callout") {
     const stats = slide.stats || [{ value: "100+", label: "Metric" }];
     const statW = Math.min(25, 80 / stats.length);
+    const statGap = (80 - statW * stats.length) / (stats.length + 1);
     return (
       <div style={canvasStyle}>
         <DraggableBox elementKey="title" defaultPos={{ x: 10, y: 10, w: 80, h: 15 }} positions={slide.positions} onPositionChange={handlePosChange} canvasWidth={cw} canvasHeight={ch} interactive={interactive}>
@@ -698,8 +767,13 @@ function SlideCanvas({
           )}
         </DraggableBox>
         {stats.map((stat, si) => (
-          <DraggableBox key={si} elementKey={`stat-${si}`} defaultPos={{ x: 10 + si * (statW + 4), y: 35, w: statW, h: 45 }} positions={slide.positions} onPositionChange={handlePosChange} canvasWidth={cw} canvasHeight={ch} interactive={interactive}>
-            <div style={{ textAlign: "center" }}>
+          <DraggableBox key={si} elementKey={`stat-${si}`} defaultPos={{ x: 10 + statGap + si * (statW + statGap), y: 35, w: statW, h: 45 }} positions={slide.positions} onPositionChange={handlePosChange} canvasWidth={cw} canvasHeight={ch} interactive={interactive}>
+            <div style={{ textAlign: "center", position: "relative" }}>
+              {editable && stats.length > 1 && (
+                <button onClick={(e) => { e.stopPropagation(); removeStat(si); }}
+                  style={{ position: "absolute", top: -4, right: 0, color: dark ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.25)", fontSize: `${10 * sc}px`, cursor: "pointer" }}
+                  title="Remove stat">✕</button>
+              )}
               {editable ? (
                 <>
                   <EditableText onFocusChange={handleFocusChange} value={stat.value} onChange={(v) => editStat(si, "value", v)} placeholder="0"
@@ -716,6 +790,19 @@ function SlideCanvas({
             </div>
           </DraggableBox>
         ))}
+        {/* Add stat button */}
+        {editable && stats.length < 6 && (
+          <DraggableBox elementKey="add-stat" defaultPos={{ x: 10 + statGap + stats.length * (statW + statGap), y: 45, w: 8, h: 15 }} positions={slide.positions} onPositionChange={handlePosChange} canvasWidth={cw} canvasHeight={ch} interactive={interactive}>
+            <button onClick={(e) => { e.stopPropagation(); addStat(); }}
+              style={{
+                width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center",
+                border: `2px dashed ${dark ? "rgba(255,255,255,0.2)" : "#d1d5db"}`, borderRadius: `${8 * sc}px`, cursor: "pointer",
+                fontSize: `${24 * sc}px`, color: dark ? "rgba(255,255,255,0.3)" : "#9ca3af",
+                background: "transparent",
+              }}
+              title="Add stat">+</button>
+          </DraggableBox>
+        )}
       </div>
     );
   }
@@ -734,34 +821,66 @@ function SlideCanvas({
             <div style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, textAlign: "center" }}>{slide.title}</div>
           )}
         </DraggableBox>
-        <DraggableBox elementKey="table" defaultPos={{ x: 7, y: 20, w: 86, h: 74 }} positions={slide.positions} onPositionChange={handlePosChange} canvasWidth={cw} canvasHeight={ch} interactive={interactive}>
-          <div style={{ display: "grid", gridTemplateColumns: `repeat(${columns.length}, 1fr)`, gap: 0, borderRadius: `${8 * sc}px`, overflow: "hidden", border: `1px solid ${dark ? "rgba(255,255,255,0.15)" : "#e5e7eb"}`, height: "100%" }}>
-            {columns.map((col, ci) => (
-              <div key={`h-${ci}`} style={{
-                background: ci === 0 ? colors.primary : colors.secondary,
-                padding: `${12 * sc}px ${16 * sc}px`, color: "#fff", fontWeight: 700,
-                fontSize: `${14 * s * sc}px`, textAlign: "center",
-              }}>
-                {editable ? (
-                  <EditableText onFocusChange={handleFocusChange} value={col.header} onChange={(v) => editColumn(ci, "header", v)}
-                    style={{ color: "#fff" }} />
-                ) : col.header}
-              </div>
-            ))}
-            {Array.from({ length: maxRows }).map((_, ri) =>
-              columns.map((col, ci) => (
-                <div key={`${ci}-${ri}`} style={{
-                  padding: `${10 * sc}px ${16 * sc}px`,
-                  background: ri % 2 === 0 ? (dark ? "rgba(255,255,255,0.04)" : "#f9fafb") : (dark ? "rgba(255,255,255,0.08)" : "#ffffff"),
-                  fontSize: `${13 * s * sc}px`, textAlign: "center",
-                  borderTop: `1px solid ${dark ? "rgba(255,255,255,0.1)" : "#e5e7eb"}`,
+        <DraggableBox elementKey="table" defaultPos={{ x: 5, y: 20, w: 90, h: 74 }} positions={slide.positions} onPositionChange={handlePosChange} canvasWidth={cw} canvasHeight={ch} interactive={interactive}>
+          <div style={{ position: "relative" }}>
+            <div style={{ display: "grid", gridTemplateColumns: `repeat(${columns.length}, 1fr)`, gap: 0, borderRadius: `${8 * sc}px`, overflow: "hidden", border: `1px solid ${dark ? "rgba(255,255,255,0.15)" : "#e5e7eb"}` }}>
+              {/* Column headers with remove button */}
+              {columns.map((col, ci) => (
+                <div key={`h-${ci}`} style={{
+                  background: ci === 0 ? colors.primary : colors.secondary,
+                  padding: `${12 * sc}px ${16 * sc}px`, color: "#fff", fontWeight: 700,
+                  fontSize: `${14 * s * sc}px`, textAlign: "center", position: "relative",
                 }}>
                   {editable ? (
-                    <EditableText onFocusChange={handleFocusChange} value={col.rows[ri] || ""} onChange={(v) => editColumn(ci, "row", v, ri)}
-                      placeholder="..." />
-                  ) : (col.rows[ri] || "")}
+                    <>
+                      <EditableText onFocusChange={handleFocusChange} value={col.header} onChange={(v) => editColumn(ci, "header", v)}
+                        style={{ color: "#fff" }} />
+                      {columns.length > 1 && (
+                        <button onClick={(e) => { e.stopPropagation(); removeTableColumn(ci); }}
+                          style={{ position: "absolute", top: 2, right: 4, color: "rgba(255,255,255,0.5)", fontSize: `${10 * sc}px`, cursor: "pointer", lineHeight: 1 }}
+                          title="Remove column">✕</button>
+                      )}
+                    </>
+                  ) : col.header}
                 </div>
-              ))
+              ))}
+              {/* Rows with remove button */}
+              {Array.from({ length: maxRows }).map((_, ri) =>
+                columns.map((col, ci) => (
+                  <div key={`${ci}-${ri}`} style={{
+                    padding: `${10 * sc}px ${16 * sc}px`,
+                    background: ri % 2 === 0 ? (dark ? "rgba(255,255,255,0.04)" : "#f9fafb") : (dark ? "rgba(255,255,255,0.08)" : "#ffffff"),
+                    fontSize: `${13 * s * sc}px`, textAlign: "center",
+                    borderTop: `1px solid ${dark ? "rgba(255,255,255,0.1)" : "#e5e7eb"}`,
+                    position: "relative",
+                  }}>
+                    {editable ? (
+                      <>
+                        <EditableText onFocusChange={handleFocusChange} value={col.rows[ri] || ""} onChange={(v) => editColumn(ci, "row", v, ri)}
+                          placeholder="..." />
+                        {ci === columns.length - 1 && maxRows > 1 && (
+                          <button onClick={(e) => { e.stopPropagation(); removeTableRow(ri); }}
+                            style={{ position: "absolute", top: "50%", right: 4, transform: "translateY(-50%)", color: dark ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.25)", fontSize: `${10 * sc}px`, cursor: "pointer" }}
+                            title="Remove row">✕</button>
+                        )}
+                      </>
+                    ) : (col.rows[ri] || "")}
+                  </div>
+                ))
+              )}
+            </div>
+            {/* Add row / add column buttons */}
+            {editable && (
+              <div style={{ display: "flex", gap: `${8 * sc}px`, marginTop: `${8 * sc}px`, justifyContent: "center" }}>
+                <button onClick={(e) => { e.stopPropagation(); addTableRow(); }}
+                  style={{ fontSize: `${11 * sc}px`, color: colors.accent, background: dark ? "rgba(255,255,255,0.06)" : "#f3f4f6", border: `1px dashed ${dark ? "rgba(255,255,255,0.2)" : "#d1d5db"}`, borderRadius: `${4 * sc}px`, padding: `${4 * sc}px ${12 * sc}px`, cursor: "pointer" }}>
+                  + Row
+                </button>
+                <button onClick={(e) => { e.stopPropagation(); addTableColumn(); }}
+                  style={{ fontSize: `${11 * sc}px`, color: colors.accent, background: dark ? "rgba(255,255,255,0.06)" : "#f3f4f6", border: `1px dashed ${dark ? "rgba(255,255,255,0.2)" : "#d1d5db"}`, borderRadius: `${4 * sc}px`, padding: `${4 * sc}px ${12 * sc}px`, cursor: "pointer" }}>
+                  + Column
+                </button>
+              </div>
             )}
           </div>
         </DraggableBox>
