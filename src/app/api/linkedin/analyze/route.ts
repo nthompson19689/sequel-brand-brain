@@ -122,72 +122,98 @@ async function handleScrape(body: Record<string, unknown>) {
     );
   }
 
+  const apiHost = process.env.RAPIDAPI_LINKEDIN_HOST || RAPIDAPI_HOST;
+  const headers: Record<string, string> = {
+    "x-rapidapi-key": rapidApiKey,
+    "x-rapidapi-host": apiHost,
+  };
+
   try {
     // Step 1: Get the user's profile to retrieve their URN
-    const profileRes = await fetch(
-      `https://${RAPIDAPI_HOST}/api/v1/user/profile?username=${encodeURIComponent(username)}`,
-      {
-        method: "GET",
-        headers: {
-          "x-rapidapi-key": rapidApiKey,
-          "x-rapidapi-host": RAPIDAPI_HOST,
-        },
-      }
-    );
+    const profileUrl = `https://${apiHost}/api/v1/user/profile?username=${encodeURIComponent(username)}`;
+    console.log("LinkedIn scrape: fetching profile from", profileUrl);
+
+    const profileRes = await fetch(profileUrl, { method: "GET", headers });
 
     if (!profileRes.ok) {
       const errText = await profileRes.text();
       console.error("LinkedIn profile fetch failed:", profileRes.status, errText);
       return Response.json(
-        { error: `Failed to fetch LinkedIn profile (${profileRes.status}). Check the URL and try again.` },
+        { error: `Failed to fetch LinkedIn profile (${profileRes.status}). Check that RAPIDAPI_KEY is valid and you have an active subscription.` },
         { status: 502 }
       );
     }
 
     const profileData = await profileRes.json();
-    const urn = profileData?.urn || profileData?.data?.urn || profileData?.profile?.urn;
+    console.log("LinkedIn profile response keys:", Object.keys(profileData));
+
+    // The URN can be at different paths depending on the API version
+    const urn =
+      profileData?.data?.urn ||
+      profileData?.data?.profile?.urn ||
+      profileData?.urn ||
+      profileData?.profile?.urn ||
+      // Some APIs use "entityUrn" or "member_urn"
+      profileData?.data?.entityUrn ||
+      profileData?.data?.member_urn;
 
     if (!urn) {
-      console.error("LinkedIn profile response missing URN:", JSON.stringify(profileData).slice(0, 500));
+      console.error("LinkedIn profile response (no URN found):", JSON.stringify(profileData).slice(0, 1000));
       return Response.json(
         { error: "Could not find LinkedIn profile URN. The profile may be private or the URL may be incorrect." },
         { status: 404 }
       );
     }
 
+    console.log("LinkedIn scrape: got URN", urn, "— fetching posts");
+
     // Step 2: Fetch the user's posts using their URN (get first 2 pages)
     const allPosts: Array<{ text: string; preview: string; source_url: string }> = [];
 
     for (let page = 1; page <= 2; page++) {
-      const postsRes = await fetch(
-        `https://${RAPIDAPI_HOST}/api/v1/user/posts?urn=${encodeURIComponent(urn)}&page=${page}`,
-        {
-          method: "GET",
-          headers: {
-            "x-rapidapi-key": rapidApiKey,
-            "x-rapidapi-host": RAPIDAPI_HOST,
-          },
-        }
-      );
+      const postsUrl = `https://${apiHost}/api/v1/user/posts?urn=${encodeURIComponent(urn)}&page=${page}`;
+      const postsRes = await fetch(postsUrl, { method: "GET", headers });
 
       if (!postsRes.ok) {
-        console.error(`LinkedIn posts page ${page} fetch failed:`, postsRes.status);
+        const errText = await postsRes.text();
+        console.error(`LinkedIn posts page ${page} failed:`, postsRes.status, errText);
         break;
       }
 
       const postsData = await postsRes.json();
-      const posts = postsData?.data || postsData?.posts || postsData || [];
+      console.log(`LinkedIn posts page ${page} response keys:`, Object.keys(postsData));
 
-      if (!Array.isArray(posts) || posts.length === 0) break;
+      // Handle nested response shapes:
+      //   { data: { posts: [...] } }
+      //   { data: [...] }
+      //   { posts: [...] }
+      //   [...]
+      let posts: unknown[] = [];
+      if (Array.isArray(postsData?.data?.posts)) {
+        posts = postsData.data.posts;
+      } else if (Array.isArray(postsData?.data)) {
+        posts = postsData.data;
+      } else if (Array.isArray(postsData?.posts)) {
+        posts = postsData.posts;
+      } else if (Array.isArray(postsData)) {
+        posts = postsData;
+      } else {
+        console.log("LinkedIn posts unexpected shape:", JSON.stringify(postsData).slice(0, 500));
+        break;
+      }
+
+      if (posts.length === 0) break;
 
       for (const post of posts) {
-        // The API may return text in different fields depending on version
-        const text = post.text || post.content || post.commentary || "";
+        if (!post || typeof post !== "object") continue;
+        const p = post as Record<string, unknown>;
+        // The API may return text in different fields
+        const text = (p.text || p.content || p.commentary || p.post_text || "") as string;
         if (typeof text === "string" && text.trim().length > 0) {
           allPosts.push({
             text: text.trim(),
             preview: text.trim().slice(0, 100),
-            source_url: post.url || post.postUrl || post.share_url || "",
+            source_url: (p.url || p.postUrl || p.post_url || p.share_url || p.permalink || "") as string,
           });
         }
       }
@@ -196,6 +222,7 @@ async function handleScrape(body: Record<string, unknown>) {
       if (allPosts.length >= 15) break;
     }
 
+    console.log(`LinkedIn scrape: found ${allPosts.length} posts`);
     return Response.json({ posts: allPosts });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
