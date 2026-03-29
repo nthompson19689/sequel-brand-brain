@@ -1,241 +1,506 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { SLIDE_LAYOUTS, newSlide, type Slide, type Deck, type PresentationTheme } from "@/lib/decks";
+import { SLIDE_LAYOUTS, newSlide, type Slide, type Deck, type PresentationTheme, type ThemeColors, type ThemeFonts } from "@/lib/decks";
 import MicButton from "@/components/ui/MicButton";
 import { useSpeechToText } from "@/hooks/useSpeechToText";
 
-// ── Slide Editor Component ──
-function SlideEditor({ slide, onChange }: { slide: Slide; onChange: (s: Slide) => void }) {
+// ─── Theme Helpers ───────────────────────────────────────────────────────────
+
+function getThemeColors(theme: PresentationTheme | null): ThemeColors {
+  return theme?.colors || { primary: "#7C3AED", secondary: "#6D28D9", accent: "#A78BFA", background: "mixed" };
+}
+
+function getThemeFonts(theme: PresentationTheme | null): ThemeFonts {
+  return theme?.fonts || { header: "Georgia", body: "Calibri", sizePreset: "default" };
+}
+
+function fontScale(preset: string) {
+  return preset === "large" ? 1.2 : preset === "compact" ? 0.85 : 1;
+}
+
+function isDark(colors: ThemeColors, index: number, total: number) {
+  if (colors.background === "dark") return true;
+  if (colors.background === "light") return false;
+  return index === 0 || index === total - 1;
+}
+
+function lightenHex(hex: string, amount: number) {
+  const num = parseInt(hex.replace("#", ""), 16);
+  const r = Math.min(255, (num >> 16) + amount);
+  const g = Math.min(255, ((num >> 8) & 0xff) + amount);
+  const b = Math.min(255, (num & 0xff) + amount);
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
+}
+
+// ─── Editable Text Component ─────────────────────────────────────────────────
+
+function EditableText({
+  value,
+  onChange,
+  className,
+  style,
+  placeholder,
+  multiline,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  className?: string;
+  style?: React.CSSProperties;
+  placeholder?: string;
+  multiline?: boolean;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [focused, setFocused] = useState(false);
+
+  const handleBlur = useCallback(() => {
+    setFocused(false);
+    if (ref.current) {
+      const text = multiline
+        ? ref.current.innerText
+        : ref.current.innerText.replace(/\n/g, " ");
+      if (text !== value) onChange(text);
+    }
+  }, [value, onChange, multiline]);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (!multiline && e.key === "Enter") {
+      e.preventDefault();
+      ref.current?.blur();
+    }
+  }, [multiline]);
+
+  useEffect(() => {
+    if (ref.current && !focused) {
+      ref.current.innerText = value || "";
+    }
+  }, [value, focused]);
+
   return (
-    <div className="space-y-4">
-      {/* Layout selector */}
-      <div>
-        <label className="text-xs font-medium text-body mb-1.5 block">Layout</label>
-        <div className="flex flex-wrap gap-1.5">
-          {SLIDE_LAYOUTS.map((l) => (
-            <button
-              key={l.type}
-              onClick={() => onChange({ ...slide, layout: l.type })}
-              className={`px-2.5 py-1.5 text-xs rounded-lg border transition-colors ${
-                slide.layout === l.type
-                  ? "border-brand-400 bg-brand-50 text-brand-700 font-medium"
-                  : "border-border bg-white text-body hover:border-brand-200"
-              }`}
-            >
-              {l.icon} {l.label}
-            </button>
-          ))}
+    <div
+      ref={ref}
+      contentEditable
+      suppressContentEditableWarning
+      onFocus={() => setFocused(true)}
+      onBlur={handleBlur}
+      onKeyDown={handleKeyDown}
+      data-placeholder={placeholder}
+      className={`outline-none cursor-text transition-all ${focused ? "ring-2 ring-blue-400/50 rounded" : "hover:ring-1 hover:ring-white/20 rounded"} ${!value && !focused ? "text-opacity-40" : ""} ${className || ""}`}
+      style={{
+        minHeight: "1.2em",
+        ...style,
+        ...((!value && !focused) ? { opacity: 0.4 } : {}),
+      }}
+    />
+  );
+}
+
+// ─── Slide Canvas Renderer ───────────────────────────────────────────────────
+
+function SlideCanvas({
+  slide,
+  onChange,
+  colors,
+  fonts,
+  dark,
+  interactive,
+  scale,
+}: {
+  slide: Slide;
+  onChange?: (s: Slide) => void;
+  colors: ThemeColors;
+  fonts: ThemeFonts;
+  dark: boolean;
+  interactive?: boolean;
+  scale?: number;
+}) {
+  const s = fontScale(fonts.sizePreset);
+  const sc = scale || 1;
+  const bg = dark ? colors.primary : "#ffffff";
+  const fg = dark ? "#ffffff" : "#1a1a2e";
+  const fgSub = dark ? lightenHex(colors.accent, 40) : "#6b7280";
+  const headerFont = fonts.header;
+  const bodyFont = fonts.body;
+  const editable = interactive && onChange;
+
+  const edit = (field: string, val: string) => {
+    if (onChange) onChange({ ...slide, [field]: val });
+  };
+
+  const editCard = (ci: number, field: string, val: string) => {
+    if (!onChange) return;
+    const cards = [...(slide.cards || [])];
+    cards[ci] = { ...cards[ci], [field]: val };
+    onChange({ ...slide, cards });
+  };
+
+  const editStat = (si: number, field: string, val: string) => {
+    if (!onChange) return;
+    const stats = [...(slide.stats || [])];
+    stats[si] = { ...stats[si], [field]: val };
+    onChange({ ...slide, stats });
+  };
+
+  const editColumn = (ci: number, field: string, val: string, ri?: number) => {
+    if (!onChange) return;
+    const columns = [...(slide.columns || [])];
+    if (field === "header") {
+      columns[ci] = { ...columns[ci], header: val };
+    } else if (ri !== undefined) {
+      const rows = [...columns[ci].rows];
+      rows[ri] = val;
+      columns[ci] = { ...columns[ci], rows };
+    }
+    onChange({ ...slide, columns });
+  };
+
+  // Base canvas style (16:9 aspect ratio)
+  const canvasStyle: React.CSSProperties = {
+    width: `${960 * sc}px`,
+    height: `${540 * sc}px`,
+    background: bg,
+    position: "relative",
+    overflow: "hidden",
+    borderRadius: `${4 * sc}px`,
+    fontFamily: bodyFont,
+    fontSize: `${14 * s * sc}px`,
+    color: fg,
+  };
+
+  // ── Title Slide ──
+  if (slide.layout === "title_slide") {
+    return (
+      <div style={canvasStyle} className="flex flex-col items-center justify-center">
+        {/* Accent line */}
+        <div style={{ width: `${120 * sc}px`, height: `${4 * sc}px`, background: colors.accent, marginBottom: `${24 * sc}px`, borderRadius: 2 }} />
+        {editable ? (
+          <EditableText value={slide.title} onChange={(v) => edit("title", v)} placeholder="Slide Title"
+            style={{ fontSize: `${40 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, color: fg, textAlign: "center", padding: `0 ${40 * sc}px`, width: "100%" }} />
+        ) : (
+          <div style={{ fontSize: `${40 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, color: fg, textAlign: "center", padding: `0 ${40 * sc}px` }}>{slide.title || "Slide Title"}</div>
+        )}
+        <div style={{ height: `${12 * sc}px` }} />
+        {editable ? (
+          <EditableText value={slide.subtitle || ""} onChange={(v) => edit("subtitle", v)} placeholder="Subtitle"
+            style={{ fontSize: `${18 * s * sc}px`, color: fgSub, textAlign: "center", padding: `0 ${60 * sc}px`, width: "100%" }} />
+        ) : (
+          <div style={{ fontSize: `${18 * s * sc}px`, color: fgSub, textAlign: "center", padding: `0 ${60 * sc}px` }}>{slide.subtitle || ""}</div>
+        )}
+      </div>
+    );
+  }
+
+  // ── Bullets ──
+  if (slide.layout === "bullets") {
+    const lines = (slide.body || "").split("\n").filter(Boolean);
+    return (
+      <div style={canvasStyle}>
+        {/* Top accent bar */}
+        <div style={{ height: `${6 * sc}px`, background: colors.primary }} />
+        <div style={{ padding: `${32 * sc}px ${48 * sc}px` }}>
+          {editable ? (
+            <EditableText value={slide.title} onChange={(v) => edit("title", v)} placeholder="Slide Title"
+              style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${24 * sc}px` }} />
+          ) : (
+            <div style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${24 * sc}px` }}>{slide.title || "Slide Title"}</div>
+          )}
+          {editable ? (
+            <EditableText value={slide.body || ""} onChange={(v) => edit("body", v)} placeholder="• Point 1\n• Point 2\n• Point 3" multiline
+              style={{ fontSize: `${16 * s * sc}px`, lineHeight: 1.8, whiteSpace: "pre-wrap" }} />
+          ) : (
+            <div style={{ fontSize: `${16 * s * sc}px`, lineHeight: 1.8 }}>
+              {lines.map((line, i) => (
+                <div key={i} style={{ display: "flex", gap: `${8 * sc}px`, marginBottom: `${4 * sc}px` }}>
+                  <span style={{ color: colors.accent }}>•</span>
+                  <span>{line.replace(/^[•\-]\s*/, "")}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
+    );
+  }
 
-      {/* Title */}
-      <div>
-        <label className="text-xs font-medium text-body mb-1.5 block">Title</label>
-        <input
-          type="text"
-          value={slide.title}
-          onChange={(e) => onChange({ ...slide, title: e.target.value })}
-          className="w-full rounded-xl border border-border bg-white px-4 py-2.5 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
-          placeholder="Slide title..."
-        />
+  // ── Two Column ──
+  if (slide.layout === "two_column") {
+    return (
+      <div style={canvasStyle} className="flex">
+        {/* Left */}
+        <div style={{ flex: 1, padding: `${40 * sc}px ${32 * sc}px`, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+          {editable ? (
+            <EditableText value={slide.title} onChange={(v) => edit("title", v)} placeholder="Title"
+              style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${16 * sc}px` }} />
+          ) : (
+            <div style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${16 * sc}px` }}>{slide.title}</div>
+          )}
+          {editable ? (
+            <EditableText value={slide.body || ""} onChange={(v) => edit("body", v)} placeholder="Content..." multiline
+              style={{ fontSize: `${14 * s * sc}px`, lineHeight: 1.7, whiteSpace: "pre-wrap" }} />
+          ) : (
+            <div style={{ fontSize: `${14 * s * sc}px`, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{slide.body}</div>
+          )}
+        </div>
+        {/* Right accent panel */}
+        <div style={{ width: "38%", background: lightenHex(colors.primary, 180), display: "flex", alignItems: "center", justifyContent: "center", padding: `${32 * sc}px` }}>
+          {editable ? (
+            <EditableText value={slide.subtitle || ""} onChange={(v) => edit("subtitle", v)} placeholder="Right column..."
+              style={{ fontSize: `${16 * s * sc}px`, color: colors.primary, textAlign: "center", fontWeight: 600 }} multiline />
+          ) : (
+            <div style={{ fontSize: `${16 * s * sc}px`, color: colors.primary, textAlign: "center", fontWeight: 600 }}>{slide.subtitle}</div>
+          )}
+        </div>
       </div>
+    );
+  }
 
-      {/* Subtitle */}
-      {(slide.layout === "title_slide" || slide.layout === "closing" || slide.layout === "two_column" || slide.layout === "quote") && (
-        <div>
-          <label className="text-xs font-medium text-body mb-1.5 block">
-            {slide.layout === "two_column" ? "Right Column" : slide.layout === "quote" ? "Attribution" : "Subtitle"}
-          </label>
-          <input
-            type="text"
-            value={slide.subtitle || ""}
-            onChange={(e) => onChange({ ...slide, subtitle: e.target.value })}
-            className="w-full rounded-xl border border-border bg-white px-4 py-2.5 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
-          />
-        </div>
-      )}
-
-      {/* Body */}
-      {slide.layout !== "three_cards" && slide.layout !== "comparison_table" && slide.layout !== "stats_callout" && (
-        <div>
-          <label className="text-xs font-medium text-body mb-1.5 block">
-            {slide.layout === "two_column" ? "Left Column" : "Content"}
-          </label>
-          <textarea
-            value={slide.body || ""}
-            onChange={(e) => onChange({ ...slide, body: e.target.value })}
-            rows={4}
-            className="w-full rounded-xl border border-border bg-white px-4 py-3 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400 resize-y"
-            placeholder="• Point 1&#10;• Point 2&#10;• Point 3"
-          />
-        </div>
-      )}
-
-      {/* Three Cards */}
-      {slide.layout === "three_cards" && (
-        <div className="space-y-3">
-          <label className="text-xs font-medium text-body">Cards</label>
-          {(slide.cards || []).map((card, ci) => (
-            <div key={ci} className="flex gap-2 p-3 bg-gray-50 rounded-xl">
-              <input
-                type="text"
-                value={card.icon}
-                onChange={(e) => {
-                  const cards = [...(slide.cards || [])];
-                  cards[ci] = { ...cards[ci], icon: e.target.value };
-                  onChange({ ...slide, cards });
-                }}
-                className="w-12 text-center rounded-lg border border-border bg-white px-1 py-2 text-lg"
-              />
-              <div className="flex-1 space-y-1.5">
-                <input
-                  type="text"
-                  value={card.title}
-                  onChange={(e) => {
-                    const cards = [...(slide.cards || [])];
-                    cards[ci] = { ...cards[ci], title: e.target.value };
-                    onChange({ ...slide, cards });
-                  }}
-                  className="w-full rounded-lg border border-border bg-white px-3 py-1.5 text-sm font-medium"
-                  placeholder="Card title"
-                />
-                <textarea
-                  value={card.body}
-                  onChange={(e) => {
-                    const cards = [...(slide.cards || [])];
-                    cards[ci] = { ...cards[ci], body: e.target.value };
-                    onChange({ ...slide, cards });
-                  }}
-                  rows={2}
-                  className="w-full rounded-lg border border-border bg-white px-3 py-1.5 text-xs resize-none"
-                  placeholder="Card content"
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Stats */}
-      {slide.layout === "stats_callout" && (
-        <div className="space-y-3">
-          <label className="text-xs font-medium text-body">Stats</label>
-          {(slide.stats || []).map((stat, si) => (
-            <div key={si} className="flex gap-2">
-              <input
-                type="text"
-                value={stat.value}
-                onChange={(e) => {
-                  const stats = [...(slide.stats || [])];
-                  stats[si] = { ...stats[si], value: e.target.value };
-                  onChange({ ...slide, stats });
-                }}
-                className="w-24 rounded-lg border border-border bg-white px-3 py-2 text-lg font-bold text-center"
-                placeholder="47%"
-              />
-              <input
-                type="text"
-                value={stat.label}
-                onChange={(e) => {
-                  const stats = [...(slide.stats || [])];
-                  stats[si] = { ...stats[si], label: e.target.value };
-                  onChange({ ...slide, stats });
-                }}
-                className="flex-1 rounded-lg border border-border bg-white px-3 py-2 text-sm"
-                placeholder="Metric label"
-              />
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Comparison Table */}
-      {slide.layout === "comparison_table" && (
-        <div className="space-y-3">
-          <label className="text-xs font-medium text-body">Columns</label>
-          <div className="grid grid-cols-2 gap-3">
-            {(slide.columns || []).map((col, ci) => (
-              <div key={ci} className="space-y-2">
-                <input
-                  type="text"
-                  value={col.header}
-                  onChange={(e) => {
-                    const columns = [...(slide.columns || [])];
-                    columns[ci] = { ...columns[ci], header: e.target.value };
-                    onChange({ ...slide, columns });
-                  }}
-                  className="w-full rounded-lg border border-border bg-brand-50 px-3 py-2 text-sm font-semibold text-brand-700"
-                  placeholder="Column header"
-                />
-                {col.rows.map((row, ri) => (
-                  <input
-                    key={ri}
-                    type="text"
-                    value={row}
-                    onChange={(e) => {
-                      const columns = [...(slide.columns || [])];
-                      const rows = [...columns[ci].rows];
-                      rows[ri] = e.target.value;
-                      columns[ci] = { ...columns[ci], rows };
-                      onChange({ ...slide, columns });
-                    }}
-                    className="w-full rounded-lg border border-border bg-white px-3 py-1.5 text-xs"
-                    placeholder={`Row ${ri + 1}`}
-                  />
-                ))}
-                <button
-                  onClick={() => {
-                    const columns = [...(slide.columns || [])];
-                    columns[ci] = { ...columns[ci], rows: [...columns[ci].rows, ""] };
-                    onChange({ ...slide, columns });
-                  }}
-                  className="text-xs text-brand-500 hover:text-brand-600"
-                >
-                  + Add row
-                </button>
+  // ── Three Cards ──
+  if (slide.layout === "three_cards") {
+    const cards = slide.cards || [{ icon: "🎯", title: "Card 1", body: "Description" }, { icon: "📊", title: "Card 2", body: "Description" }, { icon: "🚀", title: "Card 3", body: "Description" }];
+    return (
+      <div style={canvasStyle}>
+        <div style={{ padding: `${32 * sc}px ${48 * sc}px` }}>
+          {editable ? (
+            <EditableText value={slide.title} onChange={(v) => edit("title", v)} placeholder="Section Title"
+              style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${32 * sc}px`, textAlign: "center" }} />
+          ) : (
+            <div style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${32 * sc}px`, textAlign: "center" }}>{slide.title}</div>
+          )}
+          <div style={{ display: "flex", gap: `${20 * sc}px` }}>
+            {cards.map((card, ci) => (
+              <div key={ci} style={{
+                flex: 1, background: dark ? "rgba(255,255,255,0.08)" : "#f9fafb",
+                borderRadius: `${12 * sc}px`, padding: `${24 * sc}px ${20 * sc}px`,
+                borderTop: `${3 * sc}px solid ${colors.accent}`,
+              }}>
+                {editable ? (
+                  <>
+                    <EditableText value={card.icon} onChange={(v) => editCard(ci, "icon", v)}
+                      style={{ fontSize: `${28 * sc}px`, marginBottom: `${10 * sc}px` }} />
+                    <EditableText value={card.title} onChange={(v) => editCard(ci, "title", v)} placeholder="Card Title"
+                      style={{ fontSize: `${14 * s * sc}px`, fontWeight: 700, marginBottom: `${8 * sc}px` }} />
+                    <EditableText value={card.body} onChange={(v) => editCard(ci, "body", v)} placeholder="Description" multiline
+                      style={{ fontSize: `${12 * s * sc}px`, color: fgSub, lineHeight: 1.5 }} />
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontSize: `${28 * sc}px`, marginBottom: `${10 * sc}px` }}>{card.icon}</div>
+                    <div style={{ fontSize: `${14 * s * sc}px`, fontWeight: 700, marginBottom: `${8 * sc}px` }}>{card.title}</div>
+                    <div style={{ fontSize: `${12 * s * sc}px`, color: fgSub, lineHeight: 1.5 }}>{card.body}</div>
+                  </>
+                )}
               </div>
             ))}
           </div>
         </div>
-      )}
-
-      {/* Speaker notes */}
-      <div>
-        <label className="text-xs font-medium text-body mb-1.5 block">Speaker Notes</label>
-        <textarea
-          value={slide.speakerNotes || ""}
-          onChange={(e) => onChange({ ...slide, speakerNotes: e.target.value })}
-          rows={2}
-          className="w-full rounded-xl border border-border bg-white px-4 py-2.5 text-xs focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400 resize-y text-body"
-          placeholder="Notes for the presenter..."
-        />
       </div>
+    );
+  }
+
+  // ── Stats Callout ──
+  if (slide.layout === "stats_callout") {
+    const stats = slide.stats || [{ value: "100+", label: "Metric" }];
+    return (
+      <div style={canvasStyle} className="flex flex-col items-center justify-center">
+        {editable ? (
+          <EditableText value={slide.title} onChange={(v) => edit("title", v)} placeholder="Stats Title"
+            style={{ fontSize: `${24 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${40 * sc}px`, textAlign: "center" }} />
+        ) : (
+          <div style={{ fontSize: `${24 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${40 * sc}px`, textAlign: "center" }}>{slide.title}</div>
+        )}
+        <div style={{ display: "flex", gap: `${60 * sc}px` }}>
+          {stats.map((stat, si) => (
+            <div key={si} style={{ textAlign: "center" }}>
+              {editable ? (
+                <>
+                  <EditableText value={stat.value} onChange={(v) => editStat(si, "value", v)} placeholder="0"
+                    style={{ fontSize: `${48 * s * sc}px`, fontWeight: 700, color: colors.accent }} />
+                  <EditableText value={stat.label} onChange={(v) => editStat(si, "label", v)} placeholder="Label"
+                    style={{ fontSize: `${14 * s * sc}px`, color: fgSub, marginTop: `${8 * sc}px` }} />
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize: `${48 * s * sc}px`, fontWeight: 700, color: colors.accent }}>{stat.value}</div>
+                  <div style={{ fontSize: `${14 * s * sc}px`, color: fgSub, marginTop: `${8 * sc}px` }}>{stat.label}</div>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Comparison Table ──
+  if (slide.layout === "comparison_table") {
+    const columns = slide.columns || [{ header: "Us", rows: ["Feature 1"] }, { header: "Them", rows: ["Feature 1"] }];
+    const maxRows = Math.max(...columns.map((c) => c.rows.length));
+    return (
+      <div style={canvasStyle}>
+        <div style={{ padding: `${32 * sc}px ${48 * sc}px` }}>
+          {editable ? (
+            <EditableText value={slide.title} onChange={(v) => edit("title", v)} placeholder="Comparison"
+              style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${24 * sc}px`, textAlign: "center" }} />
+          ) : (
+            <div style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${24 * sc}px`, textAlign: "center" }}>{slide.title}</div>
+          )}
+          <div style={{ display: "grid", gridTemplateColumns: `repeat(${columns.length}, 1fr)`, gap: 0, borderRadius: `${8 * sc}px`, overflow: "hidden", border: `1px solid ${dark ? "rgba(255,255,255,0.15)" : "#e5e7eb"}` }}>
+            {/* Headers */}
+            {columns.map((col, ci) => (
+              <div key={`h-${ci}`} style={{
+                background: ci === 0 ? colors.primary : colors.secondary,
+                padding: `${12 * sc}px ${16 * sc}px`, color: "#fff", fontWeight: 700,
+                fontSize: `${14 * s * sc}px`, textAlign: "center",
+              }}>
+                {editable ? (
+                  <EditableText value={col.header} onChange={(v) => editColumn(ci, "header", v)}
+                    style={{ color: "#fff" }} />
+                ) : col.header}
+              </div>
+            ))}
+            {/* Rows */}
+            {Array.from({ length: maxRows }).map((_, ri) =>
+              columns.map((col, ci) => (
+                <div key={`${ci}-${ri}`} style={{
+                  padding: `${10 * sc}px ${16 * sc}px`,
+                  background: ri % 2 === 0 ? (dark ? "rgba(255,255,255,0.04)" : "#f9fafb") : (dark ? "rgba(255,255,255,0.08)" : "#ffffff"),
+                  fontSize: `${13 * s * sc}px`, textAlign: "center",
+                  borderTop: `1px solid ${dark ? "rgba(255,255,255,0.1)" : "#e5e7eb"}`,
+                }}>
+                  {editable ? (
+                    <EditableText value={col.rows[ri] || ""} onChange={(v) => editColumn(ci, "row", v, ri)}
+                      placeholder="..." />
+                  ) : (col.rows[ri] || "")}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Quote ──
+  if (slide.layout === "quote") {
+    const qbg = dark ? colors.secondary : lightenHex(colors.primary, 200);
+    return (
+      <div style={{ ...canvasStyle, background: qbg }} className="flex flex-col items-center justify-center">
+        <div style={{ width: `${60 * sc}px`, height: `${3 * sc}px`, background: colors.accent, marginBottom: `${32 * sc}px` }} />
+        {editable ? (
+          <EditableText value={slide.body || slide.title} onChange={(v) => edit("body", v)} placeholder="Your quote here..." multiline
+            style={{ fontSize: `${26 * s * sc}px`, fontStyle: "italic", textAlign: "center", padding: `0 ${80 * sc}px`, lineHeight: 1.6, maxWidth: "100%", width: "100%", color: fg }} />
+        ) : (
+          <div style={{ fontSize: `${26 * s * sc}px`, fontStyle: "italic", textAlign: "center", padding: `0 ${80 * sc}px`, lineHeight: 1.6, color: fg }}>{slide.body || slide.title}</div>
+        )}
+        <div style={{ width: `${40 * sc}px`, height: `${2 * sc}px`, background: colors.accent, margin: `${24 * sc}px 0 ${16 * sc}px` }} />
+        {editable ? (
+          <EditableText value={slide.subtitle || ""} onChange={(v) => edit("subtitle", v)} placeholder="— Attribution"
+            style={{ fontSize: `${14 * s * sc}px`, color: fgSub }} />
+        ) : (
+          <div style={{ fontSize: `${14 * s * sc}px`, color: fgSub }}>{slide.subtitle}</div>
+        )}
+      </div>
+    );
+  }
+
+  // ── Closing ──
+  if (slide.layout === "closing") {
+    return (
+      <div style={{ ...canvasStyle, background: colors.primary }} className="flex flex-col items-center justify-center">
+        {editable ? (
+          <EditableText value={slide.title} onChange={(v) => edit("title", v)} placeholder="Thank You"
+            style={{ fontSize: `${36 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, color: "#fff", textAlign: "center" }} />
+        ) : (
+          <div style={{ fontSize: `${36 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, color: "#fff", textAlign: "center" }}>{slide.title}</div>
+        )}
+        <div style={{ height: `${16 * sc}px` }} />
+        {editable ? (
+          <EditableText value={slide.subtitle || ""} onChange={(v) => edit("subtitle", v)} placeholder="Contact info or CTA"
+            style={{ fontSize: `${16 * s * sc}px`, color: "rgba(255,255,255,0.7)", textAlign: "center" }} />
+        ) : (
+          <div style={{ fontSize: `${16 * s * sc}px`, color: "rgba(255,255,255,0.7)", textAlign: "center" }}>{slide.subtitle}</div>
+        )}
+      </div>
+    );
+  }
+
+  // ── Image Left / Image Right ──
+  if (slide.layout === "image_left" || slide.layout === "image_right") {
+    const isLeft = slide.layout === "image_left";
+    const placeholder = (
+      <div style={{
+        width: "42%", background: dark ? "rgba(255,255,255,0.06)" : "#f3f4f6",
+        display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+      }}>
+        <div style={{ textAlign: "center", color: fgSub, fontSize: `${13 * sc}px` }}>
+          <div style={{ fontSize: `${32 * sc}px`, marginBottom: `${8 * sc}px`, opacity: 0.5 }}>🖼️</div>
+          Image
+        </div>
+      </div>
+    );
+    const textPanel = (
+      <div style={{ flex: 1, padding: `${40 * sc}px ${32 * sc}px`, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+        {editable ? (
+          <>
+            <EditableText value={slide.title} onChange={(v) => edit("title", v)} placeholder="Title"
+              style={{ fontSize: `${26 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${16 * sc}px` }} />
+            <EditableText value={slide.body || ""} onChange={(v) => edit("body", v)} placeholder="Content..." multiline
+              style={{ fontSize: `${14 * s * sc}px`, lineHeight: 1.7, color: fgSub }} />
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize: `${26 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${16 * sc}px` }}>{slide.title}</div>
+            <div style={{ fontSize: `${14 * s * sc}px`, lineHeight: 1.7, color: fgSub, whiteSpace: "pre-wrap" }}>{slide.body}</div>
+          </>
+        )}
+      </div>
+    );
+    return (
+      <div style={canvasStyle} className="flex">
+        {isLeft ? <>{placeholder}{textPanel}</> : <>{textPanel}{placeholder}</>}
+      </div>
+    );
+  }
+
+  // Fallback
+  return (
+    <div style={canvasStyle} className="flex items-center justify-center">
+      <div style={{ fontSize: `${18 * sc}px`, color: fgSub }}>Unsupported layout: {slide.layout}</div>
     </div>
   );
 }
 
-// ── Slide Thumbnail ──
-function SlideThumbnail({ slide, index, isActive, onClick }: { slide: Slide; index: number; isActive: boolean; onClick: () => void }) {
-  const layout = SLIDE_LAYOUTS.find((l) => l.type === slide.layout);
+// ─── Visual Slide Thumbnail ──────────────────────────────────────────────────
+
+function SlideThumbnail({
+  slide, index, isActive, onClick, colors, fonts, dark,
+}: {
+  slide: Slide; index: number; isActive: boolean; onClick: () => void;
+  colors: ThemeColors; fonts: ThemeFonts; dark: boolean;
+}) {
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left p-2.5 rounded-lg border transition-all ${
-        isActive ? "border-brand-400 bg-brand-50 shadow-sm" : "border-border bg-white hover:border-brand-200"
+      className={`w-full rounded-lg border-2 transition-all overflow-hidden ${
+        isActive ? "border-blue-500 shadow-md" : "border-transparent hover:border-gray-300"
       }`}
     >
-      <div className="text-[10px] text-body mb-1 flex items-center justify-between">
-        <span>{index + 1}</span>
-        <span>{layout?.icon}</span>
+      <div className="relative">
+        <div className="text-[9px] absolute top-0.5 left-1 z-10 bg-black/50 text-white rounded px-1">
+          {index + 1}
+        </div>
+        <div style={{ transform: "scale(0.16)", transformOrigin: "top left", width: 960, height: 540, pointerEvents: "none" }}>
+          <SlideCanvas slide={slide} colors={colors} fonts={fonts} dark={dark} />
+        </div>
+        <div style={{ width: `${960 * 0.16}px`, height: `${540 * 0.16}px` }} />
       </div>
-      <p className="text-xs font-medium text-heading truncate">{slide.title || "Untitled"}</p>
     </button>
   );
 }
 
-// ── Main Page ──
+// ─── Main Page ───────────────────────────────────────────────────────────────
+
 export default function DeckEditorPage() {
   const params = useParams();
   const router = useRouter();
@@ -247,6 +512,8 @@ export default function DeckEditorPage() {
   const [themes, setThemes] = useState<PresentationTheme[]>([]);
   const [selectedTheme, setSelectedTheme] = useState<string | null>(null);
   const [showThemePanel, setShowThemePanel] = useState(false);
+  const [showNotes, setShowNotes] = useState(false);
+  const [showLayoutPicker, setShowLayoutPicker] = useState(false);
 
   // Chat
   const [chatInput, setChatInput] = useState("");
@@ -287,6 +554,9 @@ export default function DeckEditorPage() {
 
   const slides = deck?.slides || [];
   const currentSlide = slides[activeSlide] || null;
+  const currentTheme = themes.find((t) => t.id === selectedTheme) || null;
+  const colors = getThemeColors(currentTheme);
+  const fonts = getThemeFonts(currentTheme);
 
   function updateSlide(index: number, updated: Slide) {
     if (!deck) return;
@@ -373,7 +643,6 @@ export default function DeckEditorPage() {
 
       const data = await res.json();
       if (data.slides) {
-        // Ensure IDs exist
         const updatedSlides = data.slides.map((s: Slide) => ({ ...s, id: s.id || crypto.randomUUID() }));
         setDeck({ ...deck, slides: updatedSlides });
         setChatMessages((prev) => [...prev, { role: "assistant", text: `Updated ${updatedSlides.length} slides.` }]);
@@ -389,25 +658,25 @@ export default function DeckEditorPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+      <div className="flex items-center justify-center h-screen bg-[#1e1e2e]">
+        <div className="w-6 h-6 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
   if (!deck) {
     return (
-      <div className="flex items-center justify-center h-screen">
-        <p className="text-body">Deck not found.</p>
+      <div className="flex items-center justify-center h-screen bg-[#1e1e2e]">
+        <p className="text-gray-400">Deck not found.</p>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-screen">
-      {/* Top bar */}
-      <div className="border-b border-border bg-white px-4 py-2.5 flex items-center gap-3 shrink-0">
-        <button onClick={() => router.push("/decks")} className="text-body hover:text-heading transition-colors">
+    <div className="flex flex-col h-screen bg-[#1e1e2e] text-white">
+      {/* ── Top bar ── */}
+      <div className="border-b border-[#2a2a3e] bg-[#252536] px-4 py-2 flex items-center gap-3 shrink-0">
+        <button onClick={() => router.push("/decks")} className="text-gray-400 hover:text-white transition-colors">
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
           </svg>
@@ -416,180 +685,193 @@ export default function DeckEditorPage() {
           type="text"
           value={deck.title}
           onChange={(e) => setDeck({ ...deck, title: e.target.value })}
-          className="flex-1 text-sm font-semibold text-heading bg-transparent border-none focus:outline-none"
+          className="flex-1 text-sm font-semibold text-white bg-transparent border-none focus:outline-none"
         />
-        <span className="text-xs text-body">{slides.length} slides</span>
+        <span className="text-xs text-gray-500">{slides.length} slides</span>
+
+        {/* Layout picker */}
+        <div className="relative">
+          <button
+            onClick={() => setShowLayoutPicker(!showLayoutPicker)}
+            className="px-3 py-1.5 text-xs font-medium text-gray-300 border border-[#3a3a4e] rounded-lg hover:bg-[#3a3a4e] transition-colors"
+          >
+            📐 Layout
+          </button>
+          {showLayoutPicker && currentSlide && (
+            <div className="absolute top-full mt-1 right-0 bg-[#2a2a3e] border border-[#3a3a4e] rounded-lg shadow-xl p-2 z-50 w-48">
+              {SLIDE_LAYOUTS.map((l) => (
+                <button
+                  key={l.type}
+                  onClick={() => { updateSlide(activeSlide, { ...currentSlide, layout: l.type }); setShowLayoutPicker(false); }}
+                  className={`w-full text-left px-3 py-2 text-xs rounded-md transition-colors ${
+                    currentSlide.layout === l.type ? "bg-purple-600 text-white" : "text-gray-300 hover:bg-[#3a3a4e]"
+                  }`}
+                >
+                  {l.icon} {l.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         <button
-          onClick={() => setShowThemePanel(!showThemePanel)}
-          className="px-3 py-1.5 text-xs font-medium text-body border border-border rounded-lg hover:bg-gray-50 transition-colors"
+          onClick={() => setShowNotes(!showNotes)}
+          className={`px-3 py-1.5 text-xs font-medium border rounded-lg transition-colors ${
+            showNotes ? "text-purple-300 border-purple-500 bg-purple-500/10" : "text-gray-300 border-[#3a3a4e] hover:bg-[#3a3a4e]"
+          }`}
         >
+          📝 Notes
+        </button>
+        <button onClick={() => setShowThemePanel(!showThemePanel)} className="px-3 py-1.5 text-xs font-medium text-gray-300 border border-[#3a3a4e] rounded-lg hover:bg-[#3a3a4e] transition-colors">
           🎨 Theme
         </button>
-        <button
-          onClick={handleExport}
-          className="px-3 py-1.5 text-xs font-medium text-body border border-border rounded-lg hover:bg-gray-50 transition-colors"
-        >
+        <button onClick={() => addSlide()} className="px-3 py-1.5 text-xs font-medium text-gray-300 border border-[#3a3a4e] rounded-lg hover:bg-[#3a3a4e] transition-colors">
+          + Slide
+        </button>
+        {currentSlide && slides.length > 1 && (
+          <button onClick={() => deleteSlide(activeSlide)} className="px-3 py-1.5 text-xs font-medium text-red-400 border border-red-800/40 rounded-lg hover:bg-red-900/20 transition-colors">
+            🗑
+          </button>
+        )}
+        <button onClick={handleExport} className="px-3 py-1.5 text-xs font-medium text-gray-300 border border-[#3a3a4e] rounded-lg hover:bg-[#3a3a4e] transition-colors">
           ⬇ .pptx
         </button>
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="px-4 py-1.5 text-xs font-medium text-white bg-brand-500 rounded-lg hover:bg-brand-600 disabled:opacity-50 transition-colors"
-        >
+        <button onClick={handleSave} disabled={saving}
+          className="px-4 py-1.5 text-xs font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors">
           {saving ? "Saving..." : saved ? "✓ Saved" : "Save"}
         </button>
       </div>
 
       {/* Theme panel */}
       {showThemePanel && (
-        <div className="border-b border-border bg-gray-50 px-4 py-3">
+        <div className="border-b border-[#2a2a3e] bg-[#252536] px-4 py-3">
           <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-xs font-medium text-body">Theme:</span>
+            <span className="text-xs font-medium text-gray-400">Theme:</span>
             {themes.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => setSelectedTheme(t.id)}
+              <button key={t.id} onClick={() => setSelectedTheme(t.id)}
                 className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs transition-colors ${
-                  selectedTheme === t.id ? "border-brand-400 bg-brand-50 text-brand-700" : "border-border bg-white text-body hover:border-brand-200"
-                }`}
-              >
-                <div
-                  className="w-3 h-3 rounded-full"
-                  style={{ backgroundColor: (t.colors as { primary?: string })?.primary || "#7C3AED" }}
-                />
+                  selectedTheme === t.id ? "border-purple-500 bg-purple-500/15 text-purple-300" : "border-[#3a3a4e] bg-[#2a2a3e] text-gray-300 hover:border-purple-400"
+                }`}>
+                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: (t.colors as { primary?: string })?.primary || "#7C3AED" }} />
                 {t.name}
               </button>
             ))}
-            <button
-              onClick={() => router.push("/decks/themes")}
-              className="text-xs text-brand-500 hover:text-brand-600"
-            >
+            <button onClick={() => router.push("/decks/themes")} className="text-xs text-purple-400 hover:text-purple-300">
               Manage themes →
             </button>
           </div>
         </div>
       )}
 
-      {/* Main content */}
+      {/* ── Main content ── */}
       <div className="flex-1 flex overflow-hidden">
         {/* Slide sorter */}
-        <div className="w-28 bg-gray-50 border-r border-border overflow-y-auto p-2 space-y-1.5 shrink-0">
+        <div className="w-40 bg-[#1a1a2a] border-r border-[#2a2a3e] overflow-y-auto p-2 space-y-2 shrink-0">
           {slides.map((s, i) => (
             <div key={s.id || i} className="relative group">
-              <SlideThumbnail slide={s} index={i} isActive={i === activeSlide} onClick={() => setActiveSlide(i)} />
-              {/* Move buttons */}
-              <div className="absolute right-0 top-0 flex flex-col opacity-0 group-hover:opacity-100 transition-opacity">
+              <SlideThumbnail
+                slide={s} index={i} isActive={i === activeSlide} onClick={() => setActiveSlide(i)}
+                colors={colors} fonts={fonts} dark={isDark(colors, i, slides.length)}
+              />
+              <div className="absolute right-1 top-1 flex flex-col gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                 {i > 0 && (
-                  <button onClick={() => moveSlide(i, i - 1)} className="w-5 h-5 flex items-center justify-center text-body hover:text-heading text-[10px]">▲</button>
+                  <button onClick={() => moveSlide(i, i - 1)} className="w-5 h-5 flex items-center justify-center bg-black/60 text-white rounded text-[10px] hover:bg-black/80">▲</button>
                 )}
                 {i < slides.length - 1 && (
-                  <button onClick={() => moveSlide(i, i + 1)} className="w-5 h-5 flex items-center justify-center text-body hover:text-heading text-[10px]">▼</button>
+                  <button onClick={() => moveSlide(i, i + 1)} className="w-5 h-5 flex items-center justify-center bg-black/60 text-white rounded text-[10px] hover:bg-black/80">▼</button>
                 )}
               </div>
             </div>
           ))}
-          <button
-            onClick={() => addSlide()}
-            className="w-full py-2 text-xs font-medium text-brand-500 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors text-center"
-          >
-            + Add
+          <button onClick={() => addSlide()}
+            className="w-full py-2 text-xs font-medium text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 rounded-lg transition-colors text-center border border-dashed border-[#3a3a4e]">
+            + Add Slide
           </button>
         </div>
 
-        {/* Left: Slide editor */}
-        <div className="flex-[6] overflow-y-auto bg-white p-6">
-          {currentSlide ? (
-            <div className="max-w-2xl mx-auto">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-sm font-semibold text-heading">
-                  Slide {activeSlide + 1} of {slides.length}
-                </h2>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => deleteSlide(activeSlide)}
-                    disabled={slides.length <= 1}
-                    className="px-2.5 py-1 text-xs text-red-500 bg-red-50 rounded-lg hover:bg-red-100 disabled:opacity-40 transition-colors"
-                  >
-                    Delete
-                  </button>
-                </div>
+        {/* Center: Slide Canvas */}
+        <div className="flex-1 flex flex-col overflow-hidden bg-[#2a2a3e]">
+          <div className="flex-1 flex items-center justify-center overflow-auto p-8">
+            {currentSlide ? (
+              <div className="shadow-2xl rounded-lg overflow-hidden" style={{ width: 960, flexShrink: 0 }}>
+                <SlideCanvas
+                  slide={currentSlide}
+                  onChange={(s) => updateSlide(activeSlide, s)}
+                  colors={colors}
+                  fonts={fonts}
+                  dark={isDark(colors, activeSlide, slides.length)}
+                  interactive
+                />
               </div>
-              <SlideEditor
-                slide={currentSlide}
-                onChange={(s) => updateSlide(activeSlide, s)}
+            ) : (
+              <p className="text-gray-500">No slides yet. Click + Add Slide to start.</p>
+            )}
+          </div>
+
+          {/* Speaker notes */}
+          {showNotes && currentSlide && (
+            <div className="border-t border-[#3a3a4e] bg-[#252536] px-6 py-3">
+              <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-1">Speaker Notes</div>
+              <textarea
+                value={currentSlide.speakerNotes || ""}
+                onChange={(e) => updateSlide(activeSlide, { ...currentSlide, speakerNotes: e.target.value })}
+                rows={3}
+                className="w-full bg-transparent text-gray-300 text-xs border-none focus:outline-none resize-none placeholder-gray-600"
+                placeholder="Add speaker notes for this slide..."
               />
             </div>
-          ) : (
-            <p className="text-center text-body py-16">No slides yet. Click + Add to start.</p>
           )}
         </div>
 
         {/* Right: AI Chat */}
-        <div className="flex-[4] border-l border-border bg-surface flex flex-col">
-          <div className="px-4 py-3 border-b border-border bg-white">
-            <h3 className="text-sm font-semibold text-heading">AI Assistant</h3>
-            <p className="text-xs text-body">Ask me to modify slides, add content, or change the deck.</p>
+        <div className="w-72 border-l border-[#2a2a3e] bg-[#1a1a2a] flex flex-col shrink-0">
+          <div className="px-4 py-3 border-b border-[#2a2a3e]">
+            <h3 className="text-sm font-semibold text-white">AI Assistant</h3>
+            <p className="text-[10px] text-gray-500">Ask me to modify slides or add content.</p>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          <div className="flex-1 overflow-y-auto p-3 space-y-2">
             {chatMessages.length === 0 && (
-              <div className="text-center py-8">
-                <p className="text-xs text-body">Try:</p>
-                <div className="mt-2 space-y-1.5">
-                  {["Add a slide about pricing", "Make slide 1 more concise", "Add speaker notes to all slides", "Change tone to be executive-friendly"].map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => setChatInput(s)}
-                      className="block w-full text-left px-3 py-2 text-xs text-body bg-white rounded-lg border border-border hover:border-brand-200 transition-colors"
-                    >
-                      &ldquo;{s}&rdquo;
-                    </button>
-                  ))}
-                </div>
+              <div className="py-6 space-y-1.5">
+                <p className="text-[10px] text-gray-500 text-center mb-2">Try:</p>
+                {["Add a slide about pricing", "Make slide 1 more concise", "Add speaker notes to all slides", "Change tone to be executive-friendly"].map((s) => (
+                  <button key={s} onClick={() => setChatInput(s)}
+                    className="block w-full text-left px-3 py-2 text-[11px] text-gray-400 bg-[#252536] rounded-lg border border-[#2a2a3e] hover:border-purple-500/40 transition-colors">
+                    &ldquo;{s}&rdquo;
+                  </button>
+                ))}
               </div>
             )}
             {chatMessages.map((m, i) => (
-              <div
-                key={i}
-                className={`px-3 py-2 rounded-xl text-xs ${
-                  m.role === "user"
-                    ? "bg-brand-500 text-white ml-8"
-                    : "bg-white border border-border text-heading mr-8"
-                }`}
-              >
+              <div key={i} className={`px-3 py-2 rounded-xl text-xs ${
+                m.role === "user" ? "bg-purple-600 text-white ml-6" : "bg-[#252536] border border-[#3a3a4e] text-gray-300 mr-4"
+              }`}>
                 {m.text}
               </div>
             ))}
             {chatLoading && (
-              <div className="flex items-center gap-2 text-xs text-body px-3 py-2">
-                <div className="w-3 h-3 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+              <div className="flex items-center gap-2 text-xs text-gray-500 px-3 py-2">
+                <div className="w-3 h-3 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
                 Thinking...
               </div>
             )}
             <div ref={chatEndRef} />
           </div>
 
-          <form onSubmit={handleChat} className="p-3 border-t border-border bg-white">
+          <form onSubmit={handleChat} className="p-3 border-t border-[#2a2a3e]">
             <div className="flex items-center gap-2">
               <div className="flex-1 relative">
                 <input
-                  type="text"
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  placeholder="Edit the deck..."
-                  disabled={chatLoading}
-                  className={`w-full rounded-xl border bg-surface px-3 py-2.5 ${supported ? "pr-10" : "pr-3"} text-xs focus:outline-none focus:ring-1 disabled:opacity-50 transition-colors ${
-                    isListening ? "border-red-400 focus:ring-red-400" : "border-border focus:border-brand-400 focus:ring-brand-400"
+                  type="text" value={chatInput} onChange={(e) => setChatInput(e.target.value)}
+                  placeholder="Edit the deck..." disabled={chatLoading}
+                  className={`w-full rounded-xl border bg-[#252536] px-3 py-2.5 ${supported ? "pr-10" : "pr-3"} text-xs text-white placeholder-gray-600 focus:outline-none focus:ring-1 disabled:opacity-50 transition-colors ${
+                    isListening ? "border-red-400 focus:ring-red-400" : "border-[#3a3a4e] focus:border-purple-500 focus:ring-purple-500"
                   }`}
                 />
                 <MicButton isListening={isListening} supported={supported} onClick={toggle} disabled={chatLoading} size="sm" className="absolute right-1.5 top-1.5" />
               </div>
-              <button
-                type="submit"
-                disabled={!chatInput.trim() || chatLoading}
-                className="w-8 h-8 flex items-center justify-center rounded-xl bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-40 transition-colors shrink-0"
-              >
+              <button type="submit" disabled={!chatInput.trim() || chatLoading}
+                className="w-8 h-8 flex items-center justify-center rounded-xl bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-40 transition-colors shrink-0">
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" />
                 </svg>
