@@ -250,16 +250,28 @@ async function handleAnalyze(body: Record<string, unknown>, userId: string) {
 
   // Save both voice profile and samples to profiles table
   const supabase = getSupabaseServerClient();
-  if (supabase) {
-    await supabase
-      .from("profiles")
-      .update({
-        linkedin_voice: voiceProfile,
-        linkedin_samples: samples,
-      })
-      .eq("id", userId);
+  if (!supabase) {
+    console.error("LinkedIn analyze: Supabase client not available");
+    return Response.json({ voice_profile: voiceProfile, saved: false, error: "Database not configured" });
   }
 
+  const { error: saveError } = await supabase
+    .from("profiles")
+    .update({
+      linkedin_voice: voiceProfile,
+      linkedin_samples: samples,
+    })
+    .eq("id", userId);
+
+  if (saveError) {
+    console.error("LinkedIn analyze: failed to save voice profile:", saveError.message);
+    return Response.json(
+      { error: `Voice analyzed but failed to save: ${saveError.message}`, voice_profile: voiceProfile, saved: false },
+      { status: 500 }
+    );
+  }
+
+  console.log("LinkedIn analyze: voice profile saved for user", userId);
   return Response.json({ voice_profile: voiceProfile, saved: true });
 }
 

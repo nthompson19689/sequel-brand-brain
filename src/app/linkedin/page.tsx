@@ -355,11 +355,14 @@ export default function LinkedInPage() {
       }
 
       setVoiceProfile(data.voice_profile);
+      setSavedExamples(selectedPosts);
+      setUpdatingVoice(false);
       setFlowStep("done");
       setVoiceSuccess("Voice profile saved.");
       setTimeout(() => setVoiceSuccess(null), 4000);
     } catch {
       setVoiceError("Failed to analyze voice");
+      setUpdatingVoice(false);
       setFlowStep("selecting");
     }
   }
