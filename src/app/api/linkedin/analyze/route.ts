@@ -22,30 +22,34 @@ const SCRAPE_SYSTEM = `You are a LinkedIn post researcher. Your job is to find a
 
 You will be given a LinkedIn profile URL and optionally a person's name. Use web search to find their LinkedIn posts.
 
-Search strategies:
-1. Search "site:linkedin.com [profile_url] posts"
+Search strategies (try ALL of these):
+1. Search "site:linkedin.com/posts [person name]"
 2. Search "[person name] linkedin posts"
-3. Search "site:linkedin.com/posts [person name]"
+3. Search "site:linkedin.com [profile_url]"
+4. Search "[person name] site:linkedin.com"
 
-For each post you find, extract the FULL text of the post. Aim to find 5-15 posts.
+CRITICAL ANTI-HALLUCINATION RULES:
+- ONLY return text you can see VERBATIM in the search results or on a page you visited.
+- Every post MUST include a "source_url" — the actual URL where you found it. If you cannot provide a real URL, do NOT include the post.
+- NEVER invent, imagine, reconstruct, or "fill in" post content. If you can only see a snippet, return ONLY that snippet — do NOT expand it.
+- It is MUCH better to return 1-2 real posts (or even zero) than to return fake ones.
+- If a search result only shows a preview/snippet of a post, set "partial" to true and return ONLY the visible text.
+- If you find ZERO verifiable posts, return { "posts": [] }. This is a completely valid outcome.
+- Do NOT apologize or explain if you find nothing — just return the empty array.
 
 You MUST return ONLY valid JSON (no markdown, no code fences, no explanation) in this format:
 {
   "posts": [
     {
-      "text": "The full text of the post exactly as written",
-      "preview": "First 100 characters of the post..."
+      "text": "ONLY the exact text you can see — never fabricated or expanded",
+      "source_url": "https://linkedin.com/posts/... the actual URL",
+      "partial": false,
+      "preview": "First 100 characters..."
     }
   ]
 }
 
-Guidelines:
-- Extract the complete post text, not just snippets
-- Include line breaks as they appear in the original
-- Do not modify or paraphrase the posts - use the exact text
-- If you find fewer than 5 posts, return what you find
-- If you cannot find any posts, return { "posts": [] }
-- Return ONLY the JSON object`;
+Return ONLY the JSON object.`;
 
 const ANALYZE_SYSTEM = `You are a LinkedIn voice analyst. Your job is to analyze a set of LinkedIn posts and extract the writer's voice profile.
 
@@ -159,7 +163,18 @@ async function handleScrape(body: Record<string, unknown>) {
       return Response.json({ error: "Failed to parse posts from search results" }, { status: 500 });
     }
     const result = JSON.parse(jsonMatch[0]);
-    return Response.json({ posts: result.posts || [] });
+    const rawPosts: Array<{ text?: string; source_url?: string; partial?: boolean; preview?: string }> =
+      result.posts || [];
+
+    // Filter out posts without a real LinkedIn source URL (anti-hallucination)
+    const verifiedPosts = rawPosts.filter((p) => {
+      if (!p.text || typeof p.text !== "string" || p.text.trim().length === 0) return false;
+      if (!p.source_url || typeof p.source_url !== "string") return false;
+      // Must be an actual LinkedIn URL, not a placeholder
+      return p.source_url.includes("linkedin.com/");
+    });
+
+    return Response.json({ posts: verifiedPosts });
   } catch {
     return Response.json({ error: "Failed to parse scraped posts JSON" }, { status: 500 });
   }
