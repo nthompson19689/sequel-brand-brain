@@ -34,6 +34,38 @@ function lightenHex(hex: string, amount: number) {
   return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
 }
 
+// ─── Text Formatting Helper ──────────────────────────────────────────────────
+
+function FormattedText({ text, style, accentColor }: { text: string; style?: React.CSSProperties; accentColor?: string }) {
+  const lines = text.split("\n").filter(Boolean);
+  return (
+    <div style={style}>
+      {lines.map((line, i) => {
+        const isBullet = /^[•\-\*]\s*/.test(line);
+        const cleanLine = line.replace(/^[•\-\*]\s*/, "");
+        // Parse **bold** markers
+        const parts = cleanLine.split(/(\*\*[^*]+\*\*)/g);
+        const rendered = parts.map((part, pi) => {
+          if (part.startsWith("**") && part.endsWith("**")) {
+            return <strong key={pi}>{part.slice(2, -2)}</strong>;
+          }
+          return <span key={pi}>{part}</span>;
+        });
+
+        if (isBullet) {
+          return (
+            <div key={i} style={{ display: "flex", gap: 8, marginBottom: 6, alignItems: "flex-start" }}>
+              <span style={{ color: accentColor || "#7C3AED", flexShrink: 0, marginTop: 2 }}>•</span>
+              <span>{rendered}</span>
+            </div>
+          );
+        }
+        return <div key={i} style={{ marginBottom: 4 }}>{rendered}</div>;
+      })}
+    </div>
+  );
+}
+
 // ─── Editable Text Component ─────────────────────────────────────────────────
 
 function EditableText({
@@ -173,19 +205,19 @@ function SlideCanvas({
     return (
       <div style={canvasStyle} className="flex flex-col items-center justify-center">
         {/* Accent line */}
-        <div style={{ width: `${120 * sc}px`, height: `${4 * sc}px`, background: colors.accent, marginBottom: `${24 * sc}px`, borderRadius: 2 }} />
+        <div style={{ width: `${120 * sc}px`, height: `${4 * sc}px`, background: colors.accent, marginBottom: `${28 * sc}px`, borderRadius: 2 }} />
         {editable ? (
           <EditableText value={slide.title} onChange={(v) => edit("title", v)} placeholder="Slide Title"
-            style={{ fontSize: `${40 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, color: fg, textAlign: "center", padding: `0 ${40 * sc}px`, width: "100%" }} />
+            style={{ fontSize: `${40 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, color: fg, textAlign: "center", padding: `0 ${80 * sc}px`, width: "100%" }} />
         ) : (
-          <div style={{ fontSize: `${40 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, color: fg, textAlign: "center", padding: `0 ${40 * sc}px` }}>{slide.title || "Slide Title"}</div>
+          <div style={{ fontSize: `${40 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, color: fg, textAlign: "center", padding: `0 ${80 * sc}px` }}>{slide.title || "Slide Title"}</div>
         )}
-        <div style={{ height: `${12 * sc}px` }} />
+        <div style={{ height: `${16 * sc}px` }} />
         {editable ? (
           <EditableText value={slide.subtitle || ""} onChange={(v) => edit("subtitle", v)} placeholder="Subtitle"
-            style={{ fontSize: `${18 * s * sc}px`, color: fgSub, textAlign: "center", padding: `0 ${60 * sc}px`, width: "100%" }} />
+            style={{ fontSize: `${18 * s * sc}px`, color: fgSub, textAlign: "center", padding: `0 ${100 * sc}px`, width: "100%" }} />
         ) : (
-          <div style={{ fontSize: `${18 * s * sc}px`, color: fgSub, textAlign: "center", padding: `0 ${60 * sc}px` }}>{slide.subtitle || ""}</div>
+          <div style={{ fontSize: `${18 * s * sc}px`, color: fgSub, textAlign: "center", padding: `0 ${100 * sc}px` }}>{slide.subtitle || ""}</div>
         )}
       </div>
     );
@@ -193,30 +225,23 @@ function SlideCanvas({
 
   // ── Bullets ──
   if (slide.layout === "bullets") {
-    const lines = (slide.body || "").split("\n").filter(Boolean);
     return (
       <div style={canvasStyle}>
         {/* Top accent bar */}
         <div style={{ height: `${6 * sc}px`, background: colors.primary }} />
-        <div style={{ padding: `${32 * sc}px ${48 * sc}px` }}>
+        <div style={{ padding: `${48 * sc}px ${64 * sc}px` }}>
           {editable ? (
             <EditableText value={slide.title} onChange={(v) => edit("title", v)} placeholder="Slide Title"
-              style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${24 * sc}px` }} />
+              style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${28 * sc}px` }} />
           ) : (
-            <div style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${24 * sc}px` }}>{slide.title || "Slide Title"}</div>
+            <div style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${28 * sc}px` }}>{slide.title || "Slide Title"}</div>
           )}
           {editable ? (
             <EditableText value={slide.body || ""} onChange={(v) => edit("body", v)} placeholder="• Point 1\n• Point 2\n• Point 3" multiline
               style={{ fontSize: `${16 * s * sc}px`, lineHeight: 1.8, whiteSpace: "pre-wrap" }} />
           ) : (
-            <div style={{ fontSize: `${16 * s * sc}px`, lineHeight: 1.8 }}>
-              {lines.map((line, i) => (
-                <div key={i} style={{ display: "flex", gap: `${8 * sc}px`, marginBottom: `${4 * sc}px` }}>
-                  <span style={{ color: colors.accent }}>•</span>
-                  <span>{line.replace(/^[•\-]\s*/, "")}</span>
-                </div>
-              ))}
-            </div>
+            <FormattedText text={slide.body || ""} accentColor={colors.accent}
+              style={{ fontSize: `${16 * s * sc}px`, lineHeight: 1.8 }} />
           )}
         </div>
       </div>
@@ -228,22 +253,23 @@ function SlideCanvas({
     return (
       <div style={canvasStyle} className="flex">
         {/* Left */}
-        <div style={{ flex: 1, padding: `${40 * sc}px ${32 * sc}px`, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+        <div style={{ flex: 1, padding: `${48 * sc}px ${48 * sc}px`, display: "flex", flexDirection: "column", justifyContent: "center" }}>
           {editable ? (
             <EditableText value={slide.title} onChange={(v) => edit("title", v)} placeholder="Title"
-              style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${16 * sc}px` }} />
+              style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${20 * sc}px` }} />
           ) : (
-            <div style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${16 * sc}px` }}>{slide.title}</div>
+            <div style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${20 * sc}px` }}>{slide.title}</div>
           )}
           {editable ? (
             <EditableText value={slide.body || ""} onChange={(v) => edit("body", v)} placeholder="Content..." multiline
               style={{ fontSize: `${14 * s * sc}px`, lineHeight: 1.7, whiteSpace: "pre-wrap" }} />
           ) : (
-            <div style={{ fontSize: `${14 * s * sc}px`, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{slide.body}</div>
+            <FormattedText text={slide.body || ""} accentColor={colors.accent}
+              style={{ fontSize: `${14 * s * sc}px`, lineHeight: 1.7 }} />
           )}
         </div>
         {/* Right accent panel */}
-        <div style={{ width: "38%", background: lightenHex(colors.primary, 180), display: "flex", alignItems: "center", justifyContent: "center", padding: `${32 * sc}px` }}>
+        <div style={{ width: "38%", background: lightenHex(colors.primary, 180), display: "flex", alignItems: "center", justifyContent: "center", padding: `${40 * sc}px` }}>
           {editable ? (
             <EditableText value={slide.subtitle || ""} onChange={(v) => edit("subtitle", v)} placeholder="Right column..."
               style={{ fontSize: `${16 * s * sc}px`, color: colors.primary, textAlign: "center", fontWeight: 600 }} multiline />
@@ -260,7 +286,7 @@ function SlideCanvas({
     const cards = slide.cards || [{ icon: "🎯", title: "Card 1", body: "Description" }, { icon: "📊", title: "Card 2", body: "Description" }, { icon: "🚀", title: "Card 3", body: "Description" }];
     return (
       <div style={canvasStyle}>
-        <div style={{ padding: `${32 * sc}px ${48 * sc}px` }}>
+        <div style={{ padding: `${48 * sc}px ${64 * sc}px` }}>
           {editable ? (
             <EditableText value={slide.title} onChange={(v) => edit("title", v)} placeholder="Section Title"
               style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${32 * sc}px`, textAlign: "center" }} />
@@ -338,7 +364,7 @@ function SlideCanvas({
     const maxRows = Math.max(...columns.map((c) => c.rows.length));
     return (
       <div style={canvasStyle}>
-        <div style={{ padding: `${32 * sc}px ${48 * sc}px` }}>
+        <div style={{ padding: `${48 * sc}px ${64 * sc}px` }}>
           {editable ? (
             <EditableText value={slide.title} onChange={(v) => edit("title", v)} placeholder="Comparison"
               style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${24 * sc}px`, textAlign: "center" }} />
@@ -440,18 +466,19 @@ function SlideCanvas({
       </div>
     );
     const textPanel = (
-      <div style={{ flex: 1, padding: `${40 * sc}px ${32 * sc}px`, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+      <div style={{ flex: 1, padding: `${48 * sc}px ${40 * sc}px`, display: "flex", flexDirection: "column", justifyContent: "center" }}>
         {editable ? (
           <>
             <EditableText value={slide.title} onChange={(v) => edit("title", v)} placeholder="Title"
-              style={{ fontSize: `${26 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${16 * sc}px` }} />
+              style={{ fontSize: `${26 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${20 * sc}px` }} />
             <EditableText value={slide.body || ""} onChange={(v) => edit("body", v)} placeholder="Content..." multiline
               style={{ fontSize: `${14 * s * sc}px`, lineHeight: 1.7, color: fgSub }} />
           </>
         ) : (
           <>
-            <div style={{ fontSize: `${26 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${16 * sc}px` }}>{slide.title}</div>
-            <div style={{ fontSize: `${14 * s * sc}px`, lineHeight: 1.7, color: fgSub, whiteSpace: "pre-wrap" }}>{slide.body}</div>
+            <div style={{ fontSize: `${26 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${20 * sc}px` }}>{slide.title}</div>
+            <FormattedText text={slide.body || ""} accentColor={colors.accent}
+              style={{ fontSize: `${14 * s * sc}px`, lineHeight: 1.7, color: fgSub }} />
           </>
         )}
       </div>
@@ -482,18 +509,17 @@ function SlideThumbnail({
   return (
     <button
       onClick={onClick}
-      className={`w-full rounded-lg border-2 transition-all overflow-hidden ${
-        isActive ? "border-blue-500 shadow-md" : "border-transparent hover:border-gray-300"
+      className={`w-full rounded border-2 transition-all overflow-hidden ${
+        isActive ? "border-blue-500 shadow-md" : "border-transparent hover:border-gray-500"
       }`}
     >
-      <div className="relative">
-        <div className="text-[9px] absolute top-0.5 left-1 z-10 bg-black/50 text-white rounded px-1">
+      <div className="relative" style={{ aspectRatio: "16/9", overflow: "hidden" }}>
+        <div className="text-[9px] absolute top-0.5 left-1 z-10 bg-black/60 text-white rounded px-1">
           {index + 1}
         </div>
-        <div style={{ transform: "scale(0.16)", transformOrigin: "top left", width: 960, height: 540, pointerEvents: "none" }}>
+        <div style={{ position: "absolute", top: 0, left: 0, width: 960, height: 540, transform: "scale(var(--thumb-scale))", transformOrigin: "top left", pointerEvents: "none", ["--thumb-scale" as string]: `${152 / 960}` }}>
           <SlideCanvas slide={slide} colors={colors} fonts={fonts} dark={dark} />
         </div>
-        <div style={{ width: `${960 * 0.16}px`, height: `${540 * 0.16}px` }} />
       </div>
     </button>
   );
