@@ -133,15 +133,7 @@ export default function SeoPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ─── Auth guard ────────────────────────────────────────────────────────────
-
-  if (authLoading) return null;
-  if (!user) {
-    router.push("/login");
-    return null;
-  }
-
-  // ─── Filtering & sorting ──────────────────────────────────────────────────
+  // ─── Filtering & sorting (must be before early returns for hooks rules) ───
 
   const filtered = useMemo(() => {
     let result = pages;
@@ -160,6 +152,14 @@ export default function SeoPage() {
     });
     return result;
   }, [pages, activeFilter, sortBy, sortDir]);
+
+  // ─── Auth guard ────────────────────────────────────────────────────────────
+
+  if (authLoading) return null;
+  if (!user) {
+    router.push("/login");
+    return null;
+  }
 
   function toggleSort(key: SortKey) {
     if (sortBy === key) {

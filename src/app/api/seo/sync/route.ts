@@ -105,7 +105,8 @@ async function fetchGa4Data(auth: InstanceType<typeof google.auth.JWT>): Promise
 
   const fmt = (d: Date) => d.toISOString().split("T")[0];
 
-  const res = await analyticsdata.properties.runReport({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res = await (analyticsdata.properties as any).runReport({
     property: `properties/${propertyId}`,
     requestBody: {
       dateRanges: [{ startDate: fmt(startDate), endDate: fmt(endDate) }],
@@ -115,7 +116,11 @@ async function fetchGa4Data(auth: InstanceType<typeof google.auth.JWT>): Promise
     },
   });
 
-  const rows = res.data.rows || [];
+  interface Ga4ApiRow {
+    dimensionValues?: Array<{ value?: string }>;
+    metricValues?: Array<{ value?: string }>;
+  }
+  const rows: Ga4ApiRow[] = res.data.rows || [];
   console.log(`GA4: fetched ${rows.length} pages`);
 
   return rows.map((r) => ({
@@ -244,7 +249,7 @@ export async function POST() {
     }
 
     // 2. Fetch GA4 data
-    let ga4Map = new Map<string, Ga4Row>();
+    const ga4Map = new Map<string, Ga4Row>();
     try {
       const ga4Data = await fetchGa4Data(auth);
       const siteUrl = (process.env.GSC_SITE_URL || "").replace(/\/$/, "");
