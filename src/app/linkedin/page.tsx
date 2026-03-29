@@ -796,41 +796,47 @@ export default function LinkedInPage() {
                   {(flowStep === "idle" || flowStep === "scraping") && (
                     <>
                       <div>
-                        <label className="text-sm font-medium text-gray-300 block mb-1.5">
-                          LinkedIn Profile URL
-                        </label>
-                        <input
-                          type="url"
-                          value={linkedinUrl}
-                          onChange={(e) => setLinkedinUrl(e.target.value)}
-                          placeholder="https://linkedin.com/in/yourprofile"
-                          className="w-full rounded-lg border border-[#2A2040] bg-[#0F0A1A] px-4 py-2.5 text-sm text-white placeholder-gray-500 focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
-                        />
+                        <label className="text-sm font-medium text-gray-300 block mb-1.5">LinkedIn Profile URL</label>
+                        <input type="url" value={linkedinUrl} onChange={(e) => setLinkedinUrl(e.target.value)} placeholder="https://linkedin.com/in/yourprofile" className="w-full rounded-lg border border-[#2A2040] bg-[#0F0A1A] px-4 py-2.5 text-sm text-white placeholder-gray-500 focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500" />
                       </div>
-                      <div className="flex items-center gap-3">
-                        <button
-                          onClick={handleFindPosts}
-                          disabled={!linkedinUrl.trim() || flowStep === "scraping"}
-                          className="px-5 py-2.5 text-sm font-medium text-white bg-[#7C3AED] rounded-lg hover:bg-[#6D28D9] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                        >
-                          {flowStep === "scraping" ? (
-                            <span className="inline-flex items-center gap-2">
-                              <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                              </svg>
-                              Searching for your LinkedIn posts...
-                            </span>
-                          ) : (
-                            "Find My Posts"
+
+                      <div className="bg-[#0F0A1A] border border-[#2A2040] rounded-lg p-4">
+                        <h3 className="text-sm font-medium text-gray-300 mb-2">Paste Your Best LinkedIn Posts</h3>
+                        <p className="text-xs text-gray-500 mb-3">Copy 3-5 of your best posts from LinkedIn and paste them here one at a time.</p>
+                        <textarea value={pasteText} onChange={(e) => setPasteText(e.target.value)} placeholder="Paste a LinkedIn post here..." rows={4} className="w-full rounded-lg border border-[#2A2040] bg-[#1A1228] px-4 py-3 text-sm text-white placeholder-gray-500 focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500 resize-none" />
+                        <div className="flex items-center gap-3 mt-2">
+                          <button onClick={handlePastePost} disabled={!pasteText.trim()} className="px-4 py-2 text-sm font-medium text-white bg-[#7C3AED] rounded-lg hover:bg-[#6D28D9] disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                            Add Post ({selectedPosts.length} added)
+                          </button>
+                          {selectedPosts.length >= 2 && (
+                            <button onClick={() => setFlowStep("selecting")} className="px-4 py-2 text-sm font-medium text-green-400 border border-green-800/40 rounded-lg hover:bg-green-900/20 transition-colors">
+                              Review {selectedPosts.length} Posts →
+                            </button>
                           )}
+                        </div>
+                        {selectedPosts.length > 0 && selectedPosts.length < 2 && (
+                          <p className="text-xs text-yellow-400/80 mt-2">Add at least {2 - selectedPosts.length} more post{2 - selectedPosts.length > 1 ? "s" : ""}.</p>
+                        )}
+                      </div>
+
+                      {selectedPosts.length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-xs text-gray-500">{selectedPosts.length} post{selectedPosts.length !== 1 ? "s" : ""} added:</p>
+                          {selectedPosts.map((text, i) => (
+                            <div key={i} className="flex items-start gap-2 bg-[#0F0A1A] border border-green-800/30 rounded-lg p-3">
+                              <span className="text-green-400 mt-0.5 text-sm">✓</span>
+                              <p className="text-xs text-gray-400 flex-1 line-clamp-2">{text}</p>
+                              <button onClick={() => setSelectedPosts(prev => prev.filter((_, j) => j !== i))} className="text-gray-500 hover:text-red-400 text-xs">Remove</button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="border-t border-[#2A2040] pt-4">
+                        <button onClick={handleFindPosts} disabled={!linkedinUrl.trim() || flowStep === "scraping"} className="text-sm text-gray-500 hover:text-gray-300 transition-colors underline underline-offset-2">
+                          {flowStep === "scraping" ? "Searching..." : "Or try auto-search (less reliable)"}
                         </button>
                       </div>
-                      {flowStep === "scraping" && (
-                        <p className="text-xs text-gray-500">
-                          This may take 30-60 seconds while we search for your posts.
-                        </p>
-                      )}
                     </>
                   )}
 
