@@ -18,7 +18,7 @@ interface VoiceProfile {
   voice_summary: string;
 }
 
-const RAPIDAPI_HOST = "fresh-linkedin-scraper-api.p.rapidapi.com";
+const RAPIDAPI_HOST = "fresh-linkedin-profile-data.p.rapidapi.com";
 
 const ANALYZE_SYSTEM = `You are a LinkedIn voice analyst. Your job is to analyze a set of LinkedIn posts and extract the writer's voice profile.
 
@@ -92,12 +92,14 @@ export async function POST(request: Request) {
 // ─── action="scrape" ───────────────────────────────────────────────────────────
 
 /**
- * Extract the LinkedIn username from a profile URL.
- * Handles: linkedin.com/in/username, linkedin.com/in/username/, with or without https/www
+ * Normalize a LinkedIn URL to the full format the API expects.
+ * Input:  "linkedin.com/in/foo", "https://linkedin.com/in/foo/", "www.linkedin.com/in/foo"
+ * Output: "https://www.linkedin.com/in/foo/"
  */
-function extractLinkedInUsername(url: string): string | null {
-  const match = url.match(/linkedin\.com\/in\/([^/?#]+)/);
-  return match ? match[1] : null;
+function normalizeLinkedInUrl(raw: string): string | null {
+  const match = raw.match(/linkedin\.com\/in\/([^/?#]+)/);
+  if (!match) return null;
+  return `https://www.linkedin.com/in/${match[1]}/`;
 }
 
 async function handleScrape(body: Record<string, unknown>) {
@@ -114,10 +116,10 @@ async function handleScrape(body: Record<string, unknown>) {
     );
   }
 
-  const username = extractLinkedInUsername(linkedin_url);
-  if (!username) {
+  const normalizedUrl = normalizeLinkedInUrl(linkedin_url);
+  if (!normalizedUrl) {
     return Response.json(
-      { error: "Could not extract username from LinkedIn URL. Please use a URL like linkedin.com/in/username" },
+      { error: "Could not parse LinkedIn URL. Please use a URL like linkedin.com/in/username" },
       { status: 400 }
     );
   }
@@ -126,75 +128,41 @@ async function handleScrape(body: Record<string, unknown>) {
   const headers: Record<string, string> = {
     "x-rapidapi-key": rapidApiKey,
     "x-rapidapi-host": apiHost,
+    "Content-Type": "application/json",
   };
 
   try {
-    // Step 1: Get the user's profile to retrieve their URN
-    const profileUrl = `https://${apiHost}/api/v1/user/profile?username=${encodeURIComponent(username)}`;
-    console.log("LinkedIn scrape: fetching profile from", profileUrl);
-
-    const profileRes = await fetch(profileUrl, { method: "GET", headers });
-
-    if (!profileRes.ok) {
-      const errText = await profileRes.text();
-      console.error("LinkedIn profile fetch failed:", profileRes.status, errText);
-      return Response.json(
-        { error: `Failed to fetch LinkedIn profile (${profileRes.status}). Check that RAPIDAPI_KEY is valid and you have an active subscription.` },
-        { status: 502 }
-      );
-    }
-
-    const profileData = await profileRes.json();
-    console.log("LinkedIn profile response keys:", Object.keys(profileData));
-
-    // The URN can be at different paths depending on the API version
-    const urn =
-      profileData?.data?.urn ||
-      profileData?.data?.profile?.urn ||
-      profileData?.urn ||
-      profileData?.profile?.urn ||
-      // Some APIs use "entityUrn" or "member_urn"
-      profileData?.data?.entityUrn ||
-      profileData?.data?.member_urn;
-
-    if (!urn) {
-      console.error("LinkedIn profile response (no URN found):", JSON.stringify(profileData).slice(0, 1000));
-      return Response.json(
-        { error: "Could not find LinkedIn profile URN. The profile may be private or the URL may be incorrect." },
-        { status: 404 }
-      );
-    }
-
-    console.log("LinkedIn scrape: got URN", urn, "— fetching posts");
-
-    // Step 2: Fetch the user's posts using their URN (get first 2 pages)
+    // Fetch posts directly — this API takes the LinkedIn URL, no URN needed
     const allPosts: Array<{ text: string; preview: string; source_url: string }> = [];
 
-    for (let page = 1; page <= 2; page++) {
-      const postsUrl = `https://${apiHost}/api/v1/user/posts?urn=${encodeURIComponent(urn)}&page=${page}`;
+    // Fetch up to 2 pages (0 = first 50, 50 = next 50)
+    for (const start of [0, 50]) {
+      const postsUrl =
+        `https://${apiHost}/get-profile-posts?linkedin_url=${encodeURIComponent(normalizedUrl)}&type=posts&start=${start}`;
+      console.log("LinkedIn scrape: fetching", postsUrl);
+
       const postsRes = await fetch(postsUrl, { method: "GET", headers });
 
       if (!postsRes.ok) {
         const errText = await postsRes.text();
-        console.error(`LinkedIn posts page ${page} failed:`, postsRes.status, errText);
-        break;
+        console.error(`LinkedIn posts fetch failed (start=${start}):`, postsRes.status, errText);
+        if (start === 0) {
+          // First page failed — return error
+          return Response.json(
+            { error: `Failed to fetch LinkedIn posts (${postsRes.status}). Check that RAPIDAPI_KEY is valid and you have an active subscription to Fresh LinkedIn Profile Data.` },
+            { status: 502 }
+          );
+        }
+        break; // Second page failed — just return what we have
       }
 
       const postsData = await postsRes.json();
-      console.log(`LinkedIn posts page ${page} response keys:`, Object.keys(postsData));
+      console.log(`LinkedIn posts response (start=${start}): keys=`, Object.keys(postsData));
 
-      // Handle nested response shapes:
-      //   { data: { posts: [...] } }
-      //   { data: [...] }
-      //   { posts: [...] }
-      //   [...]
+      // The API returns { data: [...posts...] } or possibly just [...]
       let posts: unknown[] = [];
-      if (Array.isArray(postsData?.data?.posts)) {
-        posts = postsData.data.posts;
-      } else if (Array.isArray(postsData?.data)) {
+      if (Array.isArray(postsData?.data)) {
         posts = postsData.data;
-      } else if (Array.isArray(postsData?.posts)) {
-        posts = postsData.posts;
       } else if (Array.isArray(postsData)) {
         posts = postsData;
       } else {
@@ -207,7 +175,7 @@ async function handleScrape(body: Record<string, unknown>) {
       for (const post of posts) {
         if (!post || typeof post !== "object") continue;
         const p = post as Record<string, unknown>;
-        // The API may return text in different fields
+        // Try various field names the API might use
         const text = (p.text || p.content || p.commentary || p.post_text || "") as string;
         if (typeof text === "string" && text.trim().length > 0) {
           allPosts.push({
@@ -218,7 +186,7 @@ async function handleScrape(body: Record<string, unknown>) {
         }
       }
 
-      // Stop if we have enough posts
+      // Stop if we have enough
       if (allPosts.length >= 15) break;
     }
 
