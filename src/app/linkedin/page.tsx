@@ -297,7 +297,8 @@ export default function LinkedInPage() {
 
       if (data.posts && data.posts.length > 0) {
         setScrapedPosts(
-          data.posts.map((text: string, i: number) => ({ text, id: `post-${i}` }))
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          data.posts.map((p: any, i: number) => ({ text: typeof p === "string" ? p : (p.text || p.preview || String(p)), id: `post-${i}` }))
         );
         setFlowStep("selecting");
       } else {

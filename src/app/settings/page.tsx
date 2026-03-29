@@ -105,8 +105,9 @@ export default function SettingsPage() {
       // If it returns scraped posts for selection
       if (data.posts && data.posts.length > 0) {
         setScrapedPosts(
-          data.posts.map((text: string, i: number) => ({
-            text,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          data.posts.map((p: any, i: number) => ({
+            text: typeof p === "string" ? p : (p.text || p.preview || String(p)),
             id: `post-${i}`,
           }))
         );
