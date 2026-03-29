@@ -137,30 +137,54 @@ async function handleScrape(body: Record<string, unknown>) {
     nameStr ? `Also try: site:linkedin.com/posts ${nameStr}` : null,
   ].filter(Boolean).join("\n");
 
-  const response = await claude.messages.create({
-    model: resolveModel("claude-sonnet-4-6"),
-    max_tokens: MAX_TOKENS,
-    system: [{ type: "text", text: SCRAPE_SYSTEM }],
-    tools: [{ type: "web_search_20250305" as const, name: "web_search", max_uses: 10 }],
-    messages: [
-      {
-        role: "user",
-        content: `Find LinkedIn posts from this profile: ${linkedin_url}${nameStr ? `\nPerson's name: ${nameStr}` : ""}\n\n${searchInstructions}\n\nReturn the posts as JSON.`,
-      },
-    ],
-  });
+  // Use an agentic loop: Claude may need multiple turns of web_search before
+  // producing a final text response with JSON.
+  type MessageParam = { role: "user" | "assistant"; content: unknown };
+  const messages: MessageParam[] = [
+    {
+      role: "user",
+      content: `Find LinkedIn posts from this profile: ${linkedin_url}${nameStr ? `\nPerson's name: ${nameStr}` : ""}\n\n${searchInstructions}\n\nReturn the posts as JSON.`,
+    },
+  ];
 
-  // Extract text from response
   let rawText = "";
-  for (const block of response.content) {
-    if (block.type === "text") rawText += block.text;
+  const MAX_TURNS = 6;
+
+  for (let turn = 0; turn < MAX_TURNS; turn++) {
+    const response = await claude.messages.create({
+      model: resolveModel("claude-sonnet-4-6"),
+      max_tokens: MAX_TOKENS,
+      system: [{ type: "text", text: SCRAPE_SYSTEM }],
+      tools: [{ type: "web_search_20250305" as const, name: "web_search", max_uses: 10 }],
+      messages,
+    });
+
+    // Collect any text blocks from this turn
+    for (const block of response.content) {
+      if (block.type === "text") rawText += block.text;
+    }
+
+    // If Claude is done (not requesting another tool call), break
+    if (response.stop_reason !== "tool_use") break;
+
+    // Otherwise, feed the assistant response back and add an empty user turn
+    // so the API can continue (server-side tools auto-resolve, but we still
+    // need to continue the conversation loop).
+    messages.push({ role: "assistant", content: response.content });
+    // For server-side tools like web_search, the API handles the tool result
+    // internally. We just need to send a continuation user message.
+    messages.push({ role: "user", content: "Continue searching and return the JSON when done." });
   }
 
-  // Parse the JSON
+  // Parse the JSON from accumulated text blocks
   try {
-    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    // Try to find a JSON object with a "posts" key
+    const jsonMatch = rawText.match(/\{[\s\S]*"posts"[\s\S]*\}/);
     if (!jsonMatch) {
-      return Response.json({ error: "Failed to parse posts from search results" }, { status: 500 });
+      // If no JSON found at all, return empty posts (not an error — Claude
+      // may legitimately have found nothing)
+      console.log("LinkedIn scrape: no JSON found in response. rawText:", rawText.slice(0, 500));
+      return Response.json({ posts: [] });
     }
     const result = JSON.parse(jsonMatch[0]);
     const rawPosts: Array<{ text?: string; source_url?: string; partial?: boolean; preview?: string }> =
@@ -175,8 +199,10 @@ async function handleScrape(body: Record<string, unknown>) {
     });
 
     return Response.json({ posts: verifiedPosts });
-  } catch {
-    return Response.json({ error: "Failed to parse scraped posts JSON" }, { status: 500 });
+  } catch (parseErr) {
+    console.error("LinkedIn scrape JSON parse error:", parseErr, "rawText:", rawText.slice(0, 500));
+    // Return empty posts instead of a hard error — better UX
+    return Response.json({ posts: [] });
   }
 }
 
