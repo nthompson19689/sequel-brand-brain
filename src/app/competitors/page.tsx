@@ -22,7 +22,11 @@ interface Competitor {
 
 interface Digest {
   id: string;
-  content: string;
+  digest_markdown: string;
+  week_start: string;
+  week_end: string;
+  competitor_count: number;
+  high_alerts: number;
   created_at: string;
 }
 
@@ -357,7 +361,14 @@ export default function CompetitorsPage() {
         }
       }
 
-      // Stream finished — reload data
+      // Stream finished — auto-generate digest then reload
+      setScanProgress((prev) => [...prev, { competitor_id: "", competitor_name: "Digest", method: "digest", status: "running", message: "Generating weekly digest..." }]);
+      try {
+        await fetch("/api/competitors/digest", { method: "POST", headers: { "Content-Type": "application/json" } });
+        setScanProgress((prev) => prev.map((p) => p.method === "digest" ? { ...p, status: "done", message: "Digest generated" } : p));
+      } catch {
+        setScanProgress((prev) => prev.map((p) => p.method === "digest" ? { ...p, status: "error", message: "Digest generation failed" } : p));
+      }
       setScanning(false);
       loadData();
     } catch (err) {
@@ -609,10 +620,13 @@ export default function CompetitorsPage() {
             {digest ? (
               <div className="bg-[#1A1228] border border-[#2A2040] rounded-xl p-5">
                 <p className="text-[10px] text-[#4A4560] mb-3">
-                  Generated {new Date(digest.created_at).toLocaleDateString()}
+                  Week of {digest.week_start} — Generated {new Date(digest.created_at).toLocaleDateString()}
+                  {digest.high_alerts > 0 && (
+                    <span className="ml-2 text-red-400 font-medium">{digest.high_alerts} high alert{digest.high_alerts > 1 ? "s" : ""}</span>
+                  )}
                 </p>
-                <div className="text-sm text-[#A09CB0] leading-relaxed whitespace-pre-wrap">
-                  {digest.content}
+                <div className="text-sm text-[#A09CB0] leading-relaxed whitespace-pre-wrap prose prose-invert prose-sm max-w-none">
+                  {digest.digest_markdown}
                 </div>
               </div>
             ) : (

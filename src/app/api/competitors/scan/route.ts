@@ -34,6 +34,46 @@ interface ScanFinding {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** Generate a dedup key from title + scan_type. If a result with the same key
+ *  already exists for this competitor in the last 14 days, skip the insert. */
+function dedupKey(title: string, scanType: string): string {
+  return createHash("md5").update(`${scanType}::${title.trim().toLowerCase()}`).digest("hex");
+}
+
+/** Insert scan results with deduplication. Returns count of new items inserted. */
+async function insertWithDedup(
+  supabase: ReturnType<typeof getSupabaseServerClient>,
+  competitorId: string,
+  rows: Array<Record<string, unknown>>
+): Promise<number> {
+  if (!supabase || rows.length === 0) return 0;
+
+  // Check which keys already exist in the last 14 days
+  const fourteenDaysAgo = new Date();
+  fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+
+  const keys = rows.map((r) => dedupKey(String(r.title || ""), String(r.scan_type || "")));
+
+  const { data: existing } = await supabase
+    .from("competitor_scan_results")
+    .select("dedup_key")
+    .eq("competitor_id", competitorId)
+    .gte("created_at", fourteenDaysAgo.toISOString())
+    .in("dedup_key", keys);
+
+  const existingKeys = new Set((existing || []).map((e: { dedup_key: string }) => e.dedup_key));
+
+  const newRows = rows
+    .map((r, i) => ({ ...r, dedup_key: keys[i] }))
+    .filter((r) => !existingKeys.has(r.dedup_key));
+
+  if (newRows.length === 0) return 0;
+
+  const { error } = await supabase.from("competitor_scan_results").insert(newRows);
+  if (error) console.error("Insert error:", error.message);
+  return newRows.length;
+}
+
 const WEB_SEARCH_TOOL = {
   type: "web_search_20250305" as const,
   name: "web_search" as const,
@@ -207,7 +247,7 @@ async function scanSitemap(
     });
 
     // Store individual new URLs as scan results
-    await supabase.from("competitor_scan_results").insert(
+    await insertWithDedup(supabase, competitor.id,
       newUrls.slice(0, 50).map((u) => ({
         competitor_id: competitor.id,
         scan_type: "sitemap",
@@ -331,7 +371,7 @@ Summarize the pricing changes concisely. Focus on: plan names, price changes, fe
       url: competitor.pricing_url,
     });
 
-    await supabase.from("competitor_scan_results").insert({
+    await insertWithDedup(supabase, competitor.id, [{
       competitor_id: competitor.id,
       scan_type: "pricing",
       significance: "high",
@@ -339,7 +379,7 @@ Summarize the pricing changes concisely. Focus on: plan names, price changes, fe
       detail: summary,
       url: competitor.pricing_url,
       raw_data: { content_hash: contentHash, changes_detected: true },
-    });
+    }]);
   } else {
     findings.push({
       type: "pricing",
@@ -419,14 +459,14 @@ Analyze and return a JSON object (no markdown, just raw JSON) with:
     significance,
   });
 
-  await supabase.from("competitor_scan_results").insert({
+  await insertWithDedup(supabase, competitor.id, [{
     competitor_id: competitor.id,
     scan_type: "hiring",
     significance,
     title: findings[0].title,
     detail: summary,
     raw_data: hiringData,
-  });
+  }]);
 
   send({ type: "scan_result", competitor: competitor.name, method: "hiring", findings });
   return findings;
@@ -521,7 +561,7 @@ Return a JSON object (no markdown, just raw JSON):
     url: competitor.g2_url || undefined,
   });
 
-  await supabase.from("competitor_scan_results").insert({
+  await insertWithDedup(supabase, competitor.id, [{
     competitor_id: competitor.id,
     scan_type: "g2_reviews",
     significance,
@@ -529,7 +569,7 @@ Return a JSON object (no markdown, just raw JSON):
     detail: summary,
     url: competitor.g2_url || null,
     raw_data: reviewData,
-  });
+  }]);
 
   send({ type: "scan_result", competitor: competitor.name, method: "g2_reviews", findings });
   return findings;
@@ -602,7 +642,7 @@ Return an empty array [] if no recent news found.`,
       });
     }
 
-    await supabase.from("competitor_scan_results").insert(
+    await insertWithDedup(supabase, competitor.id,
       newsItems.map((item) => ({
         competitor_id: competitor.id,
         scan_type: "news",
@@ -680,7 +720,7 @@ Return an empty array [] if nothing recent found.`,
       });
     }
 
-    await supabase.from("competitor_scan_results").insert(
+    await insertWithDedup(supabase, competitor.id,
       updates.map((item) => ({
         competitor_id: competitor.id,
         scan_type: "product_updates",
@@ -759,7 +799,7 @@ Return an empty array [] if nothing found.`,
       });
     }
 
-    await supabase.from("competitor_scan_results").insert(
+    await insertWithDedup(supabase, competitor.id,
       events.map((item) => ({
         competitor_id: competitor.id,
         scan_type: "events",
