@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 
@@ -116,7 +116,6 @@ export default function CompetitorDetailPage() {
   const [resultsLoading, setResultsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
-  const eventSourceRef = useRef<EventSource | null>(null);
 
   // ── Load competitor ──
   const loadCompetitor = useCallback(async () => {
@@ -157,7 +156,7 @@ export default function CompetitorDetailPage() {
   useEffect(() => {
     loadCompetitor();
     return () => {
-      eventSourceRef.current?.close();
+      // cleanup
     };
   }, [loadCompetitor]);
 
@@ -175,32 +174,38 @@ export default function CompetitorDetailPage() {
         body: JSON.stringify({ competitor_id: competitorId }),
       });
       if (!res.ok) throw new Error("Failed to start scan");
-      const data = await res.json();
 
-      if (data.scan_id) {
-        const es = new EventSource(`/api/competitors/scan/progress?scan_id=${data.scan_id}`);
-        eventSourceRef.current = es;
+      // The API returns an SSE stream directly — read it
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("No response body");
 
-        es.addEventListener("done", () => {
-          es.close();
-          eventSourceRef.current = null;
-          setScanning(false);
-          loadCompetitor();
-          loadResults();
-        });
+      const decoder = new TextDecoder();
+      let buffer = "";
 
-        es.onerror = () => {
-          es.close();
-          eventSourceRef.current = null;
-          setScanning(false);
-          loadCompetitor();
-          loadResults();
-        };
-      } else {
-        setScanning(false);
-        loadCompetitor();
-        loadResults();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const event = JSON.parse(line.slice(6));
+            if (event.type === "scan_complete" || event.type === "error") {
+              break;
+            }
+          } catch {
+            // ignore parse errors
+          }
+        }
       }
+
+      setScanning(false);
+      loadCompetitor();
+      loadResults();
     } catch (err) {
       console.error("Scan failed:", err);
       alert("Failed to start scan.");
