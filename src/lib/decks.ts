@@ -19,6 +19,14 @@ export const SLIDE_LAYOUTS: SlideLayout[] = [
   { type: "closing", label: "Closing Slide", icon: "🏁" },
 ];
 
+/** Position and size of a draggable element (percentages of slide, 0-100) */
+export interface ElementPosition {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface Slide {
   id: string;
   layout: SlideLayout["type"];
@@ -32,6 +40,8 @@ export interface Slide {
   columns?: { header: string; rows: string[] }[];
   /** For stats_callout layout */
   stats?: { value: string; label: string }[];
+  /** Optional position overrides for each element (key = element name like "title", "body", "card-0") */
+  positions?: Record<string, ElementPosition>;
 }
 
 export interface ThemeColors {

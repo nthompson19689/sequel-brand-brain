@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { SLIDE_LAYOUTS, newSlide, type Slide, type Deck, type PresentationTheme, type ThemeColors, type ThemeFonts } from "@/lib/decks";
+import { SLIDE_LAYOUTS, newSlide, type Slide, type Deck, type PresentationTheme, type ThemeColors, type ThemeFonts, type ElementPosition } from "@/lib/decks";
 import MicButton from "@/components/ui/MicButton";
 import { useSpeechToText } from "@/hooks/useSpeechToText";
 
@@ -197,6 +197,138 @@ function FormattingToolbar({ visible }: { visible: boolean }) {
   );
 }
 
+// ─── Draggable / Resizable Box ───────────────────────────────────────────────
+
+function DraggableBox({
+  elementKey,
+  defaultPos,
+  positions,
+  onPositionChange,
+  canvasWidth,
+  canvasHeight,
+  interactive,
+  children,
+}: {
+  elementKey: string;
+  defaultPos: ElementPosition;
+  positions?: Record<string, ElementPosition>;
+  onPositionChange?: (key: string, pos: ElementPosition) => void;
+  canvasWidth: number;
+  canvasHeight: number;
+  interactive?: boolean;
+  children: React.ReactNode;
+}) {
+  const pos = positions?.[elementKey] || defaultPos;
+  const [selected, setSelected] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ startX: number; startY: number; startPosX: number; startPosY: number; type: "move" | "resize"; corner?: string } | null>(null);
+
+  // Convert percentages to pixels
+  const px = (pos.x / 100) * canvasWidth;
+  const py = (pos.y / 100) * canvasHeight;
+  const pw = (pos.w / 100) * canvasWidth;
+  const ph = (pos.h / 100) * canvasHeight;
+
+  const handleMouseDown = useCallback((e: React.MouseEvent, type: "move" | "resize", corner?: string) => {
+    if (!interactive || !onPositionChange) return;
+    e.stopPropagation();
+    e.preventDefault();
+    setSelected(true);
+    dragRef.current = { startX: e.clientX, startY: e.clientY, startPosX: pos.x, startPosY: pos.y, type, corner };
+
+    const handleMouseMove = (ev: MouseEvent) => {
+      if (!dragRef.current) return;
+      const dx = ((ev.clientX - dragRef.current.startX) / canvasWidth) * 100;
+      const dy = ((ev.clientY - dragRef.current.startY) / canvasHeight) * 100;
+
+      if (dragRef.current.type === "move") {
+        onPositionChange(elementKey, {
+          ...pos,
+          x: Math.max(0, Math.min(100 - pos.w, dragRef.current.startPosX + dx)),
+          y: Math.max(0, Math.min(100 - pos.h, dragRef.current.startPosY + dy)),
+        });
+      } else if (dragRef.current.type === "resize") {
+        const c = dragRef.current.corner;
+        let newX = pos.x, newY = pos.y, newW = pos.w, newH = pos.h;
+        if (c?.includes("e")) newW = Math.max(5, pos.w + dx);
+        if (c?.includes("s")) newH = Math.max(5, pos.h + dy);
+        if (c?.includes("w")) { newX = Math.max(0, pos.x + dx); newW = Math.max(5, pos.w - dx); }
+        if (c?.includes("n")) { newY = Math.max(0, pos.y + dy); newH = Math.max(5, pos.h - dy); }
+        onPositionChange(elementKey, { x: newX, y: newY, w: newW, h: newH });
+      }
+    };
+
+    const handleMouseUp = () => {
+      dragRef.current = null;
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+  }, [interactive, onPositionChange, elementKey, pos, canvasWidth, canvasHeight]);
+
+  // Deselect when clicking outside
+  useEffect(() => {
+    if (!selected) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) {
+        setSelected(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [selected]);
+
+  if (!interactive) {
+    // Non-interactive: just position absolutely
+    return (
+      <div style={{ position: "absolute", left: px, top: py, width: pw, height: ph, overflow: "hidden" }}>
+        {children}
+      </div>
+    );
+  }
+
+  const handleStyle = "w-2.5 h-2.5 bg-white border-2 border-blue-500 rounded-sm absolute z-20";
+
+  return (
+    <div
+      ref={boxRef}
+      style={{
+        position: "absolute",
+        left: px,
+        top: py,
+        width: pw,
+        height: ph,
+        cursor: selected ? "move" : "default",
+        outline: selected ? "2px solid #3b82f6" : "none",
+        zIndex: selected ? 10 : 1,
+      }}
+      onMouseDown={(e) => {
+        if (!selected) { setSelected(true); return; }
+        handleMouseDown(e, "move");
+      }}
+    >
+      {children}
+
+      {/* Resize handles — only show when selected */}
+      {selected && (
+        <>
+          <div className={handleStyle} style={{ top: -5, left: -5, cursor: "nw-resize" }} onMouseDown={(e) => handleMouseDown(e, "resize", "nw")} />
+          <div className={handleStyle} style={{ top: -5, right: -5, cursor: "ne-resize" }} onMouseDown={(e) => handleMouseDown(e, "resize", "ne")} />
+          <div className={handleStyle} style={{ bottom: -5, left: -5, cursor: "sw-resize" }} onMouseDown={(e) => handleMouseDown(e, "resize", "sw")} />
+          <div className={handleStyle} style={{ bottom: -5, right: -5, cursor: "se-resize" }} onMouseDown={(e) => handleMouseDown(e, "resize", "se")} />
+          {/* Edge handles */}
+          <div className={handleStyle} style={{ top: -5, left: "50%", marginLeft: -5, cursor: "n-resize" }} onMouseDown={(e) => handleMouseDown(e, "resize", "n")} />
+          <div className={handleStyle} style={{ bottom: -5, left: "50%", marginLeft: -5, cursor: "s-resize" }} onMouseDown={(e) => handleMouseDown(e, "resize", "s")} />
+          <div className={handleStyle} style={{ top: "50%", left: -5, marginTop: -5, cursor: "w-resize" }} onMouseDown={(e) => handleMouseDown(e, "resize", "w")} />
+          <div className={handleStyle} style={{ top: "50%", right: -5, marginTop: -5, cursor: "e-resize" }} onMouseDown={(e) => handleMouseDown(e, "resize", "e")} />
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── Editable Text Component ─────────────────────────────────────────────────
 
 function EditableText({
@@ -311,6 +443,13 @@ function SlideCanvas({
   const bodyFont = fonts.body;
   const editable = interactive && onChange;
   const handleFocusChange = onEditingChange;
+  const cw = 960 * (scale || 1);
+  const ch = 540 * (scale || 1);
+
+  const handlePosChange = (key: string, pos: ElementPosition) => {
+    if (!onChange) return;
+    onChange({ ...slide, positions: { ...(slide.positions || {}), [key]: pos } });
+  };
 
   const edit = (field: string, val: string) => {
     if (onChange) onChange({ ...slide, [field]: val });
@@ -359,22 +498,26 @@ function SlideCanvas({
   // ── Title Slide ──
   if (slide.layout === "title_slide") {
     return (
-      <div style={canvasStyle} className="flex flex-col items-center justify-center">
-        {/* Accent line */}
-        <div style={{ width: `${120 * sc}px`, height: `${4 * sc}px`, background: colors.accent, marginBottom: `${28 * sc}px`, borderRadius: 2 }} />
-        {editable ? (
-          <EditableText value={slide.title} onChange={(v) => edit("title", v)} placeholder="Slide Title"
-            style={{ fontSize: `${40 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, color: fg, textAlign: "center", padding: `0 ${80 * sc}px`, width: "100%" }} />
-        ) : (
-          <div style={{ fontSize: `${40 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, color: fg, textAlign: "center", padding: `0 ${80 * sc}px` }}>{slide.title || "Slide Title"}</div>
-        )}
-        <div style={{ height: `${16 * sc}px` }} />
-        {editable ? (
-          <EditableText value={slide.subtitle || ""} onChange={(v) => edit("subtitle", v)} placeholder="Subtitle"
-            style={{ fontSize: `${18 * s * sc}px`, color: fgSub, textAlign: "center", padding: `0 ${100 * sc}px`, width: "100%" }} />
-        ) : (
-          <div style={{ fontSize: `${18 * s * sc}px`, color: fgSub, textAlign: "center", padding: `0 ${100 * sc}px` }}>{slide.subtitle || ""}</div>
-        )}
+      <div style={canvasStyle}>
+        <DraggableBox elementKey="accent" defaultPos={{ x: 40, y: 38, w: 20, h: 2 }} positions={slide.positions} onPositionChange={handlePosChange} canvasWidth={cw} canvasHeight={ch} interactive={interactive}>
+          <div style={{ width: "100%", height: "100%", background: colors.accent, borderRadius: 2 }} />
+        </DraggableBox>
+        <DraggableBox elementKey="title" defaultPos={{ x: 8, y: 42, w: 84, h: 18 }} positions={slide.positions} onPositionChange={handlePosChange} canvasWidth={cw} canvasHeight={ch} interactive={interactive}>
+          {editable ? (
+            <EditableText value={slide.title} onChange={(v) => edit("title", v)} onFocusChange={handleFocusChange} placeholder="Slide Title"
+              style={{ fontSize: `${40 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, color: fg, textAlign: "center", width: "100%" }} />
+          ) : (
+            <div style={{ fontSize: `${40 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, color: fg, textAlign: "center" }}>{slide.title || "Slide Title"}</div>
+          )}
+        </DraggableBox>
+        <DraggableBox elementKey="subtitle" defaultPos={{ x: 15, y: 62, w: 70, h: 10 }} positions={slide.positions} onPositionChange={handlePosChange} canvasWidth={cw} canvasHeight={ch} interactive={interactive}>
+          {editable ? (
+            <EditableText onFocusChange={handleFocusChange} value={slide.subtitle || ""} onChange={(v) => edit("subtitle", v)} placeholder="Subtitle"
+              style={{ fontSize: `${18 * s * sc}px`, color: fgSub, textAlign: "center", width: "100%" }} />
+          ) : (
+            <div style={{ fontSize: `${18 * s * sc}px`, color: fgSub, textAlign: "center" }}>{slide.subtitle || ""}</div>
+          )}
+        </DraggableBox>
       </div>
     );
   }
@@ -383,15 +526,18 @@ function SlideCanvas({
   if (slide.layout === "bullets") {
     return (
       <div style={canvasStyle}>
-        {/* Top accent bar */}
-        <div style={{ height: `${6 * sc}px`, background: colors.primary }} />
-        <div style={{ padding: `${48 * sc}px ${64 * sc}px` }}>
+        <DraggableBox elementKey="accent-bar" defaultPos={{ x: 0, y: 0, w: 100, h: 1.2 }} positions={slide.positions} onPositionChange={handlePosChange} canvasWidth={cw} canvasHeight={ch} interactive={interactive}>
+          <div style={{ width: "100%", height: "100%", background: colors.primary }} />
+        </DraggableBox>
+        <DraggableBox elementKey="title" defaultPos={{ x: 7, y: 6, w: 86, h: 12 }} positions={slide.positions} onPositionChange={handlePosChange} canvasWidth={cw} canvasHeight={ch} interactive={interactive}>
           {editable ? (
             <EditableText value={slide.title} onChange={(v) => edit("title", v)} onFocusChange={handleFocusChange} placeholder="Slide Title"
-              style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${28 * sc}px` }} />
+              style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700 }} />
           ) : (
-            <div style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${28 * sc}px` }}>{slide.title || "Slide Title"}</div>
+            <div style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700 }}>{slide.title || "Slide Title"}</div>
           )}
+        </DraggableBox>
+        <DraggableBox elementKey="body" defaultPos={{ x: 7, y: 22, w: 86, h: 70 }} positions={slide.positions} onPositionChange={handlePosChange} canvasWidth={cw} canvasHeight={ch} interactive={interactive}>
           {editable ? (
             <EditableText onFocusChange={handleFocusChange} value={slide.body || ""} onChange={(v) => edit("body", v)} placeholder="• Point 1\n• Point 2\n• Point 3" multiline
               style={{ fontSize: `${16 * s * sc}px`, lineHeight: 1.8, whiteSpace: "pre-wrap" }} />
@@ -399,7 +545,7 @@ function SlideCanvas({
             <FormattedText text={slide.body || ""} accentColor={colors.accent}
               style={{ fontSize: `${16 * s * sc}px`, lineHeight: 1.8 }} />
           )}
-        </div>
+        </DraggableBox>
       </div>
     );
   }
@@ -407,15 +553,16 @@ function SlideCanvas({
   // ── Two Column ──
   if (slide.layout === "two_column") {
     return (
-      <div style={canvasStyle} className="flex">
-        {/* Left */}
-        <div style={{ flex: 1, padding: `${48 * sc}px ${48 * sc}px`, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+      <div style={canvasStyle}>
+        <DraggableBox elementKey="title" defaultPos={{ x: 5, y: 10, w: 52, h: 15 }} positions={slide.positions} onPositionChange={handlePosChange} canvasWidth={cw} canvasHeight={ch} interactive={interactive}>
           {editable ? (
             <EditableText value={slide.title} onChange={(v) => edit("title", v)} onFocusChange={handleFocusChange} placeholder="Title"
-              style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${20 * sc}px` }} />
+              style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700 }} />
           ) : (
-            <div style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${20 * sc}px` }}>{slide.title}</div>
+            <div style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700 }}>{slide.title}</div>
           )}
+        </DraggableBox>
+        <DraggableBox elementKey="body" defaultPos={{ x: 5, y: 28, w: 52, h: 62 }} positions={slide.positions} onPositionChange={handlePosChange} canvasWidth={cw} canvasHeight={ch} interactive={interactive}>
           {editable ? (
             <EditableText onFocusChange={handleFocusChange} value={slide.body || ""} onChange={(v) => edit("body", v)} placeholder="Content..." multiline
               style={{ fontSize: `${14 * s * sc}px`, lineHeight: 1.7, whiteSpace: "pre-wrap" }} />
@@ -423,16 +570,17 @@ function SlideCanvas({
             <FormattedText text={slide.body || ""} accentColor={colors.accent}
               style={{ fontSize: `${14 * s * sc}px`, lineHeight: 1.7 }} />
           )}
-        </div>
-        {/* Right accent panel */}
-        <div style={{ width: "38%", background: lightenHex(colors.primary, 180), display: "flex", alignItems: "center", justifyContent: "center", padding: `${40 * sc}px` }}>
-          {editable ? (
-            <EditableText onFocusChange={handleFocusChange} value={slide.subtitle || ""} onChange={(v) => edit("subtitle", v)} placeholder="Right column..."
-              style={{ fontSize: `${16 * s * sc}px`, color: colors.primary, textAlign: "center", fontWeight: 600 }} multiline />
-          ) : (
-            <div style={{ fontSize: `${16 * s * sc}px`, color: colors.primary, textAlign: "center", fontWeight: 600 }}>{slide.subtitle}</div>
-          )}
-        </div>
+        </DraggableBox>
+        <DraggableBox elementKey="right-panel" defaultPos={{ x: 62, y: 0, w: 38, h: 100 }} positions={slide.positions} onPositionChange={handlePosChange} canvasWidth={cw} canvasHeight={ch} interactive={interactive}>
+          <div style={{ width: "100%", height: "100%", background: lightenHex(colors.primary, 180), display: "flex", alignItems: "center", justifyContent: "center", padding: `${40 * sc}px` }}>
+            {editable ? (
+              <EditableText onFocusChange={handleFocusChange} value={slide.subtitle || ""} onChange={(v) => edit("subtitle", v)} placeholder="Right column..."
+                style={{ fontSize: `${16 * s * sc}px`, color: colors.primary, textAlign: "center", fontWeight: 600 }} multiline />
+            ) : (
+              <div style={{ fontSize: `${16 * s * sc}px`, color: colors.primary, textAlign: "center", fontWeight: 600 }}>{slide.subtitle}</div>
+            )}
+          </div>
+        </DraggableBox>
       </div>
     );
   }
@@ -442,40 +590,40 @@ function SlideCanvas({
     const cards = slide.cards || [{ icon: "🎯", title: "Card 1", body: "Description" }, { icon: "📊", title: "Card 2", body: "Description" }, { icon: "🚀", title: "Card 3", body: "Description" }];
     return (
       <div style={canvasStyle}>
-        <div style={{ padding: `${48 * sc}px ${64 * sc}px` }}>
+        <DraggableBox elementKey="title" defaultPos={{ x: 7, y: 6, w: 86, h: 12 }} positions={slide.positions} onPositionChange={handlePosChange} canvasWidth={cw} canvasHeight={ch} interactive={interactive}>
           {editable ? (
             <EditableText value={slide.title} onChange={(v) => edit("title", v)} onFocusChange={handleFocusChange} placeholder="Section Title"
-              style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${32 * sc}px`, textAlign: "center" }} />
+              style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, textAlign: "center" }} />
           ) : (
-            <div style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${32 * sc}px`, textAlign: "center" }}>{slide.title}</div>
+            <div style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, textAlign: "center" }}>{slide.title}</div>
           )}
-          <div style={{ display: "flex", gap: `${20 * sc}px` }}>
-            {cards.map((card, ci) => (
-              <div key={ci} style={{
-                flex: 1, background: dark ? "rgba(255,255,255,0.08)" : "#f9fafb",
-                borderRadius: `${12 * sc}px`, padding: `${24 * sc}px ${20 * sc}px`,
-                borderTop: `${3 * sc}px solid ${colors.accent}`,
-              }}>
-                {editable ? (
-                  <>
-                    <EditableText onFocusChange={handleFocusChange} value={card.icon} onChange={(v) => editCard(ci, "icon", v)}
-                      style={{ fontSize: `${28 * sc}px`, marginBottom: `${10 * sc}px` }} />
-                    <EditableText onFocusChange={handleFocusChange} value={card.title} onChange={(v) => editCard(ci, "title", v)} placeholder="Card Title"
-                      style={{ fontSize: `${14 * s * sc}px`, fontWeight: 700, marginBottom: `${8 * sc}px` }} />
-                    <EditableText onFocusChange={handleFocusChange} value={card.body} onChange={(v) => editCard(ci, "body", v)} placeholder="Description" multiline
-                      style={{ fontSize: `${12 * s * sc}px`, color: fgSub, lineHeight: 1.5 }} />
-                  </>
-                ) : (
-                  <>
-                    <div style={{ fontSize: `${28 * sc}px`, marginBottom: `${10 * sc}px` }}>{card.icon}</div>
-                    <div style={{ fontSize: `${14 * s * sc}px`, fontWeight: 700, marginBottom: `${8 * sc}px` }}>{card.title}</div>
-                    <div style={{ fontSize: `${12 * s * sc}px`, color: fgSub, lineHeight: 1.5 }}>{card.body}</div>
-                  </>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
+        </DraggableBox>
+        {cards.map((card, ci) => (
+          <DraggableBox key={ci} elementKey={`card-${ci}`} defaultPos={{ x: 5 + ci * 32, y: 24, w: 28, h: 68 }} positions={slide.positions} onPositionChange={handlePosChange} canvasWidth={cw} canvasHeight={ch} interactive={interactive}>
+            <div style={{
+              width: "100%", height: "100%", background: dark ? "rgba(255,255,255,0.08)" : "#f9fafb",
+              borderRadius: `${12 * sc}px`, padding: `${24 * sc}px ${20 * sc}px`,
+              borderTop: `${3 * sc}px solid ${colors.accent}`, boxSizing: "border-box",
+            }}>
+              {editable ? (
+                <>
+                  <EditableText onFocusChange={handleFocusChange} value={card.icon} onChange={(v) => editCard(ci, "icon", v)}
+                    style={{ fontSize: `${28 * sc}px`, marginBottom: `${10 * sc}px` }} />
+                  <EditableText onFocusChange={handleFocusChange} value={card.title} onChange={(v) => editCard(ci, "title", v)} placeholder="Card Title"
+                    style={{ fontSize: `${14 * s * sc}px`, fontWeight: 700, marginBottom: `${8 * sc}px` }} />
+                  <EditableText onFocusChange={handleFocusChange} value={card.body} onChange={(v) => editCard(ci, "body", v)} placeholder="Description" multiline
+                    style={{ fontSize: `${12 * s * sc}px`, color: fgSub, lineHeight: 1.5 }} />
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize: `${28 * sc}px`, marginBottom: `${10 * sc}px` }}>{card.icon}</div>
+                  <div style={{ fontSize: `${14 * s * sc}px`, fontWeight: 700, marginBottom: `${8 * sc}px` }}>{card.title}</div>
+                  <div style={{ fontSize: `${12 * s * sc}px`, color: fgSub, lineHeight: 1.5 }}>{card.body}</div>
+                </>
+              )}
+            </div>
+          </DraggableBox>
+        ))}
       </div>
     );
   }
@@ -483,17 +631,20 @@ function SlideCanvas({
   // ── Stats Callout ──
   if (slide.layout === "stats_callout") {
     const stats = slide.stats || [{ value: "100+", label: "Metric" }];
+    const statW = Math.min(25, 80 / stats.length);
     return (
-      <div style={canvasStyle} className="flex flex-col items-center justify-center">
-        {editable ? (
-          <EditableText value={slide.title} onChange={(v) => edit("title", v)} placeholder="Stats Title"
-            style={{ fontSize: `${24 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${40 * sc}px`, textAlign: "center" }} />
-        ) : (
-          <div style={{ fontSize: `${24 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${40 * sc}px`, textAlign: "center" }}>{slide.title}</div>
-        )}
-        <div style={{ display: "flex", gap: `${60 * sc}px` }}>
-          {stats.map((stat, si) => (
-            <div key={si} style={{ textAlign: "center" }}>
+      <div style={canvasStyle}>
+        <DraggableBox elementKey="title" defaultPos={{ x: 10, y: 10, w: 80, h: 15 }} positions={slide.positions} onPositionChange={handlePosChange} canvasWidth={cw} canvasHeight={ch} interactive={interactive}>
+          {editable ? (
+            <EditableText value={slide.title} onChange={(v) => edit("title", v)} onFocusChange={handleFocusChange} placeholder="Stats Title"
+              style={{ fontSize: `${24 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, textAlign: "center" }} />
+          ) : (
+            <div style={{ fontSize: `${24 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, textAlign: "center" }}>{slide.title}</div>
+          )}
+        </DraggableBox>
+        {stats.map((stat, si) => (
+          <DraggableBox key={si} elementKey={`stat-${si}`} defaultPos={{ x: 10 + si * (statW + 4), y: 35, w: statW, h: 45 }} positions={slide.positions} onPositionChange={handlePosChange} canvasWidth={cw} canvasHeight={ch} interactive={interactive}>
+            <div style={{ textAlign: "center" }}>
               {editable ? (
                 <>
                   <EditableText onFocusChange={handleFocusChange} value={stat.value} onChange={(v) => editStat(si, "value", v)} placeholder="0"
@@ -508,8 +659,8 @@ function SlideCanvas({
                 </>
               )}
             </div>
-          ))}
-        </div>
+          </DraggableBox>
+        ))}
       </div>
     );
   }
@@ -520,15 +671,16 @@ function SlideCanvas({
     const maxRows = Math.max(...columns.map((c) => c.rows.length));
     return (
       <div style={canvasStyle}>
-        <div style={{ padding: `${48 * sc}px ${64 * sc}px` }}>
+        <DraggableBox elementKey="title" defaultPos={{ x: 7, y: 5, w: 86, h: 12 }} positions={slide.positions} onPositionChange={handlePosChange} canvasWidth={cw} canvasHeight={ch} interactive={interactive}>
           {editable ? (
             <EditableText value={slide.title} onChange={(v) => edit("title", v)} onFocusChange={handleFocusChange} placeholder="Comparison"
-              style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${24 * sc}px`, textAlign: "center" }} />
+              style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, textAlign: "center" }} />
           ) : (
-            <div style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${24 * sc}px`, textAlign: "center" }}>{slide.title}</div>
+            <div style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, textAlign: "center" }}>{slide.title}</div>
           )}
-          <div style={{ display: "grid", gridTemplateColumns: `repeat(${columns.length}, 1fr)`, gap: 0, borderRadius: `${8 * sc}px`, overflow: "hidden", border: `1px solid ${dark ? "rgba(255,255,255,0.15)" : "#e5e7eb"}` }}>
-            {/* Headers */}
+        </DraggableBox>
+        <DraggableBox elementKey="table" defaultPos={{ x: 7, y: 20, w: 86, h: 74 }} positions={slide.positions} onPositionChange={handlePosChange} canvasWidth={cw} canvasHeight={ch} interactive={interactive}>
+          <div style={{ display: "grid", gridTemplateColumns: `repeat(${columns.length}, 1fr)`, gap: 0, borderRadius: `${8 * sc}px`, overflow: "hidden", border: `1px solid ${dark ? "rgba(255,255,255,0.15)" : "#e5e7eb"}`, height: "100%" }}>
             {columns.map((col, ci) => (
               <div key={`h-${ci}`} style={{
                 background: ci === 0 ? colors.primary : colors.secondary,
@@ -536,12 +688,11 @@ function SlideCanvas({
                 fontSize: `${14 * s * sc}px`, textAlign: "center",
               }}>
                 {editable ? (
-                  <EditableText value={col.header} onChange={(v) => editColumn(ci, "header", v)}
+                  <EditableText onFocusChange={handleFocusChange} value={col.header} onChange={(v) => editColumn(ci, "header", v)}
                     style={{ color: "#fff" }} />
                 ) : col.header}
               </div>
             ))}
-            {/* Rows */}
             {Array.from({ length: maxRows }).map((_, ri) =>
               columns.map((col, ci) => (
                 <div key={`${ci}-${ri}`} style={{
@@ -551,14 +702,14 @@ function SlideCanvas({
                   borderTop: `1px solid ${dark ? "rgba(255,255,255,0.1)" : "#e5e7eb"}`,
                 }}>
                   {editable ? (
-                    <EditableText value={col.rows[ri] || ""} onChange={(v) => editColumn(ci, "row", v, ri)}
+                    <EditableText onFocusChange={handleFocusChange} value={col.rows[ri] || ""} onChange={(v) => editColumn(ci, "row", v, ri)}
                       placeholder="..." />
                   ) : (col.rows[ri] || "")}
                 </div>
               ))
             )}
           </div>
-        </div>
+        </DraggableBox>
       </div>
     );
   }
@@ -567,21 +718,29 @@ function SlideCanvas({
   if (slide.layout === "quote") {
     const qbg = dark ? colors.secondary : lightenHex(colors.primary, 200);
     return (
-      <div style={{ ...canvasStyle, background: qbg }} className="flex flex-col items-center justify-center">
-        <div style={{ width: `${60 * sc}px`, height: `${3 * sc}px`, background: colors.accent, marginBottom: `${32 * sc}px` }} />
-        {editable ? (
-          <EditableText value={slide.body || slide.title} onChange={(v) => edit("body", v)} placeholder="Your quote here..." multiline
-            style={{ fontSize: `${26 * s * sc}px`, fontStyle: "italic", textAlign: "center", padding: `0 ${80 * sc}px`, lineHeight: 1.6, maxWidth: "100%", width: "100%", color: fg }} />
-        ) : (
-          <div style={{ fontSize: `${26 * s * sc}px`, fontStyle: "italic", textAlign: "center", padding: `0 ${80 * sc}px`, lineHeight: 1.6, color: fg }}>{slide.body || slide.title}</div>
-        )}
-        <div style={{ width: `${40 * sc}px`, height: `${2 * sc}px`, background: colors.accent, margin: `${24 * sc}px 0 ${16 * sc}px` }} />
-        {editable ? (
-          <EditableText value={slide.subtitle || ""} onChange={(v) => edit("subtitle", v)} placeholder="— Attribution"
-            style={{ fontSize: `${14 * s * sc}px`, color: fgSub }} />
-        ) : (
-          <div style={{ fontSize: `${14 * s * sc}px`, color: fgSub }}>{slide.subtitle}</div>
-        )}
+      <div style={{ ...canvasStyle, background: qbg }}>
+        <DraggableBox elementKey="accent-top" defaultPos={{ x: 44, y: 28, w: 12, h: 1.5 }} positions={slide.positions} onPositionChange={handlePosChange} canvasWidth={cw} canvasHeight={ch} interactive={interactive}>
+          <div style={{ width: "100%", height: "100%", background: colors.accent }} />
+        </DraggableBox>
+        <DraggableBox elementKey="body" defaultPos={{ x: 10, y: 32, w: 80, h: 30 }} positions={slide.positions} onPositionChange={handlePosChange} canvasWidth={cw} canvasHeight={ch} interactive={interactive}>
+          {editable ? (
+            <EditableText onFocusChange={handleFocusChange} value={slide.body || slide.title} onChange={(v) => edit("body", v)} placeholder="Your quote here..." multiline
+              style={{ fontSize: `${26 * s * sc}px`, fontStyle: "italic", textAlign: "center", lineHeight: 1.6, color: fg }} />
+          ) : (
+            <div style={{ fontSize: `${26 * s * sc}px`, fontStyle: "italic", textAlign: "center", lineHeight: 1.6, color: fg }}>{slide.body || slide.title}</div>
+          )}
+        </DraggableBox>
+        <DraggableBox elementKey="accent-bottom" defaultPos={{ x: 46, y: 66, w: 8, h: 1 }} positions={slide.positions} onPositionChange={handlePosChange} canvasWidth={cw} canvasHeight={ch} interactive={interactive}>
+          <div style={{ width: "100%", height: "100%", background: colors.accent }} />
+        </DraggableBox>
+        <DraggableBox elementKey="subtitle" defaultPos={{ x: 20, y: 70, w: 60, h: 8 }} positions={slide.positions} onPositionChange={handlePosChange} canvasWidth={cw} canvasHeight={ch} interactive={interactive}>
+          {editable ? (
+            <EditableText onFocusChange={handleFocusChange} value={slide.subtitle || ""} onChange={(v) => edit("subtitle", v)} placeholder="— Attribution"
+              style={{ fontSize: `${14 * s * sc}px`, color: fgSub, textAlign: "center" }} />
+          ) : (
+            <div style={{ fontSize: `${14 * s * sc}px`, color: fgSub, textAlign: "center" }}>{slide.subtitle}</div>
+          )}
+        </DraggableBox>
       </div>
     );
   }
@@ -589,20 +748,23 @@ function SlideCanvas({
   // ── Closing ──
   if (slide.layout === "closing") {
     return (
-      <div style={{ ...canvasStyle, background: colors.primary }} className="flex flex-col items-center justify-center">
-        {editable ? (
-          <EditableText value={slide.title} onChange={(v) => edit("title", v)} placeholder="Thank You"
-            style={{ fontSize: `${36 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, color: "#fff", textAlign: "center" }} />
-        ) : (
-          <div style={{ fontSize: `${36 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, color: "#fff", textAlign: "center" }}>{slide.title}</div>
-        )}
-        <div style={{ height: `${16 * sc}px` }} />
-        {editable ? (
-          <EditableText value={slide.subtitle || ""} onChange={(v) => edit("subtitle", v)} placeholder="Contact info or CTA"
-            style={{ fontSize: `${16 * s * sc}px`, color: "rgba(255,255,255,0.7)", textAlign: "center" }} />
-        ) : (
-          <div style={{ fontSize: `${16 * s * sc}px`, color: "rgba(255,255,255,0.7)", textAlign: "center" }}>{slide.subtitle}</div>
-        )}
+      <div style={{ ...canvasStyle, background: colors.primary }}>
+        <DraggableBox elementKey="title" defaultPos={{ x: 10, y: 35, w: 80, h: 18 }} positions={slide.positions} onPositionChange={handlePosChange} canvasWidth={cw} canvasHeight={ch} interactive={interactive}>
+          {editable ? (
+            <EditableText value={slide.title} onChange={(v) => edit("title", v)} onFocusChange={handleFocusChange} placeholder="Thank You"
+              style={{ fontSize: `${36 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, color: "#fff", textAlign: "center" }} />
+          ) : (
+            <div style={{ fontSize: `${36 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, color: "#fff", textAlign: "center" }}>{slide.title}</div>
+          )}
+        </DraggableBox>
+        <DraggableBox elementKey="subtitle" defaultPos={{ x: 15, y: 58, w: 70, h: 12 }} positions={slide.positions} onPositionChange={handlePosChange} canvasWidth={cw} canvasHeight={ch} interactive={interactive}>
+          {editable ? (
+            <EditableText onFocusChange={handleFocusChange} value={slide.subtitle || ""} onChange={(v) => edit("subtitle", v)} placeholder="Contact info or CTA"
+              style={{ fontSize: `${16 * s * sc}px`, color: "rgba(255,255,255,0.7)", textAlign: "center" }} />
+          ) : (
+            <div style={{ fontSize: `${16 * s * sc}px`, color: "rgba(255,255,255,0.7)", textAlign: "center" }}>{slide.subtitle}</div>
+          )}
+        </DraggableBox>
       </div>
     );
   }
@@ -610,38 +772,38 @@ function SlideCanvas({
   // ── Image Left / Image Right ──
   if (slide.layout === "image_left" || slide.layout === "image_right") {
     const isLeft = slide.layout === "image_left";
-    const placeholder = (
-      <div style={{
-        width: "42%", background: dark ? "rgba(255,255,255,0.06)" : "#f3f4f6",
-        display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-      }}>
-        <div style={{ textAlign: "center", color: fgSub, fontSize: `${13 * sc}px` }}>
-          <div style={{ fontSize: `${32 * sc}px`, marginBottom: `${8 * sc}px`, opacity: 0.5 }}>🖼️</div>
-          Image
-        </div>
-      </div>
-    );
-    const textPanel = (
-      <div style={{ flex: 1, padding: `${48 * sc}px ${40 * sc}px`, display: "flex", flexDirection: "column", justifyContent: "center" }}>
-        {editable ? (
-          <>
+    const imgX = isLeft ? 0 : 58;
+    const txtX = isLeft ? 45 : 5;
+    return (
+      <div style={canvasStyle}>
+        <DraggableBox elementKey="image" defaultPos={{ x: imgX, y: 0, w: 42, h: 100 }} positions={slide.positions} onPositionChange={handlePosChange} canvasWidth={cw} canvasHeight={ch} interactive={interactive}>
+          <div style={{
+            width: "100%", height: "100%", background: dark ? "rgba(255,255,255,0.06)" : "#f3f4f6",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <div style={{ textAlign: "center", color: fgSub, fontSize: `${13 * sc}px` }}>
+              <div style={{ fontSize: `${32 * sc}px`, marginBottom: `${8 * sc}px`, opacity: 0.5 }}>🖼️</div>
+              Image
+            </div>
+          </div>
+        </DraggableBox>
+        <DraggableBox elementKey="title" defaultPos={{ x: txtX, y: 20, w: 50, h: 15 }} positions={slide.positions} onPositionChange={handlePosChange} canvasWidth={cw} canvasHeight={ch} interactive={interactive}>
+          {editable ? (
             <EditableText value={slide.title} onChange={(v) => edit("title", v)} onFocusChange={handleFocusChange} placeholder="Title"
-              style={{ fontSize: `${26 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${20 * sc}px` }} />
+              style={{ fontSize: `${26 * s * sc}px`, fontFamily: headerFont, fontWeight: 700 }} />
+          ) : (
+            <div style={{ fontSize: `${26 * s * sc}px`, fontFamily: headerFont, fontWeight: 700 }}>{slide.title}</div>
+          )}
+        </DraggableBox>
+        <DraggableBox elementKey="body" defaultPos={{ x: txtX, y: 40, w: 50, h: 45 }} positions={slide.positions} onPositionChange={handlePosChange} canvasWidth={cw} canvasHeight={ch} interactive={interactive}>
+          {editable ? (
             <EditableText onFocusChange={handleFocusChange} value={slide.body || ""} onChange={(v) => edit("body", v)} placeholder="Content..." multiline
               style={{ fontSize: `${14 * s * sc}px`, lineHeight: 1.7, color: fgSub }} />
-          </>
-        ) : (
-          <>
-            <div style={{ fontSize: `${26 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${20 * sc}px` }}>{slide.title}</div>
+          ) : (
             <FormattedText text={slide.body || ""} accentColor={colors.accent}
               style={{ fontSize: `${14 * s * sc}px`, lineHeight: 1.7, color: fgSub }} />
-          </>
-        )}
-      </div>
-    );
-    return (
-      <div style={canvasStyle} className="flex">
-        {isLeft ? <>{placeholder}{textPanel}</> : <>{textPanel}{placeholder}</>}
+          )}
+        </DraggableBox>
       </div>
     );
   }
