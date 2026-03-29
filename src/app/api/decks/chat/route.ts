@@ -1,12 +1,14 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest } from "next/server";
+import { getClaudeClient, resolveModel } from "@/lib/claude";
+import { buildSystemBlocks, logCachePerformance } from "@/lib/brand-context";
 
 export const runtime = "nodejs";
+export const maxDuration = 120;
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY || "" });
-
-const SYSTEM = `You are a presentation editor AI. The user has a slide deck and wants to modify it.
+const DECK_CHAT_CONTEXT = `You are a presentation editor AI for Sequel. The user has a slide deck and wants to modify it.
 You can see the full deck content. When the user asks for changes, return the COMPLETE updated slides array as JSON.
+
+Use the brand context above to ensure all content matches Sequel's voice, messaging, and positioning.
 
 IMPORTANT: Always return ONLY a JSON object with this structure:
 {"slides": [...]}
@@ -26,21 +28,28 @@ export async function POST(request: NextRequest) {
   try {
     const { message, slides } = await request.json();
 
+    const { blocks: systemBlocks } = await buildSystemBlocks({
+      additionalContext: DECK_CHAT_CONTEXT,
+    });
+
     const deckContext = `Current deck (${slides.length} slides):\n${JSON.stringify(slides, null, 2)}`;
 
-    const response = await client.messages.create({
-      model: "claude-sonnet-4-20250514",
+    const claude = getClaudeClient();
+    const response = await claude.messages.create({
+      model: resolveModel("claude-sonnet-4-6"),
       max_tokens: 8192,
-      system: SYSTEM,
+      system: systemBlocks,
       messages: [
         { role: "user", content: `${deckContext}\n\nUser request: ${message}` },
       ],
     });
 
-    const text = response.content
-      .filter((b): b is Anthropic.TextBlock => b.type === "text")
-      .map((b) => b.text)
-      .join("");
+    logCachePerformance("/api/decks/chat", response.usage);
+
+    let text = "";
+    for (const block of response.content) {
+      if (block.type === "text") text += block.text;
+    }
 
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {

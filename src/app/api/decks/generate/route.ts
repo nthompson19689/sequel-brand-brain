@@ -1,12 +1,14 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
+import { getClaudeClient, MAX_TOKENS, resolveModel } from "@/lib/claude";
+import { buildSystemBlocks, logCachePerformance } from "@/lib/brand-context";
+import { getSupabaseServerClient } from "@/lib/supabase";
 
 export const runtime = "nodejs";
+export const maxDuration = 120;
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY || "" });
+const DECK_SYSTEM = `You are a presentation architect for Sequel. You create professional slide decks grounded in real brand data and competitive intelligence.
 
-const SYSTEM_PROMPT = `You are a presentation architect. Given a description, generate a professional slide deck.
-
+=== OUTPUT FORMAT ===
 Return ONLY valid JSON with this exact structure:
 {
   "title": "Deck Title",
@@ -17,17 +19,11 @@ Return ONLY valid JSON with this exact structure:
       "subtitle": "Optional subtitle",
       "body": "",
       "speakerNotes": "What to say when presenting this slide"
-    },
-    {
-      "layout": "bullets",
-      "title": "Slide Heading",
-      "body": "• Point 1\\n• Point 2\\n• Point 3",
-      "speakerNotes": "Key talking points"
     }
   ]
 }
 
-Available layouts and when to use them:
+=== AVAILABLE LAYOUTS ===
 - title_slide: Opening slide. Large title, optional subtitle.
 - bullets: Standard content slide with bullet points. Most common.
 - two_column: Split layout. body = left column text, subtitle = right column text.
@@ -35,41 +31,95 @@ Available layouts and when to use them:
 - comparison_table: Versus/comparison. Include "columns": [{"header": "Us", "rows": ["row1", "row2"]}, {"header": "Them", "rows": ["row1", "row2"]}]
 - stats_callout: Big numbers. Include "stats": [{"value": "47%", "label": "Growth rate"}]
 - image_left / image_right: Slide with image placeholder. body = text content.
-- quote: Inspirational or customer quote. title = quote text, subtitle = attribution.
+- quote: Customer quote or insight. body = quote text, subtitle = attribution.
 - closing: Final slide. title = CTA or thank you, subtitle = contact info.
 
-Guidelines:
+=== GUIDELINES ===
 - Always start with title_slide and end with closing
 - Use variety of layouts — don't repeat the same layout 3+ times in a row
 - Keep slide text concise — 3-5 bullets max per slide
-- Include speaker notes for every slide
+- Include speaker notes for every slide with real talking points
 - 8-15 slides is ideal for most presentations
-- Use concrete data/numbers when possible
+- Use concrete data/numbers from the brand context when available
 - Each bullet point starts with "• "
-- For comparison_table, use 3-5 rows per column`;
+- For comparison_table, use 3-5 rows per column
+- Use Sequel's actual messaging, positioning, and competitive intel — never generic filler`;
 
 export async function POST(request: NextRequest) {
   try {
     const { prompt, mode } = await request.json();
 
-    let enrichedPrompt = prompt;
+    // Build brand context (same as chat, content, agents)
+    let additionalContext = DECK_SYSTEM;
+
+    // For battle card mode, fetch competitive intel
     if (mode === "battle_card") {
-      enrichedPrompt = `Create a competitive battle card presentation about: ${prompt}. Include slides for: company overview, their strengths, their weaknesses, our advantages, head-to-head comparison table, objection handling, and win strategy.`;
-    } else if (mode === "sales_deck") {
-      enrichedPrompt = `Create a sales pitch deck for: ${prompt}. Include slides for: attention-grabbing opening, the problem/pain point, our solution, key features (use three_cards), social proof/stats, comparison with alternatives, pricing/ROI, and a strong closing CTA.`;
+      const supabase = getSupabaseServerClient();
+      if (supabase) {
+        const { data: battleCards } = await supabase
+          .from("battle_cards")
+          .select("competitor_name, strengths, weaknesses, positioning, objection_handling, win_strategy")
+          .limit(10);
+
+        if (battleCards && battleCards.length > 0) {
+          const bcContext = battleCards.map((bc) => {
+            const parts = [`### ${bc.competitor_name}`];
+            if (bc.strengths) parts.push(`Strengths: ${bc.strengths}`);
+            if (bc.weaknesses) parts.push(`Weaknesses: ${bc.weaknesses}`);
+            if (bc.positioning) parts.push(`Our positioning: ${bc.positioning}`);
+            if (bc.objection_handling) parts.push(`Objection handling: ${bc.objection_handling}`);
+            if (bc.win_strategy) parts.push(`Win strategy: ${bc.win_strategy}`);
+            return parts.join("\n");
+          }).join("\n\n");
+          additionalContext += `\n\n=== COMPETITIVE INTELLIGENCE ===\nUse this real data in the deck:\n\n${bcContext}`;
+        }
+      }
     }
 
-    const response = await client.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 4096,
-      system: SYSTEM_PROMPT,
+    // For sales deck mode, fetch call insights for common objections/wins
+    if (mode === "sales_deck") {
+      const supabase = getSupabaseServerClient();
+      if (supabase) {
+        const { data: insights } = await supabase
+          .from("call_insights")
+          .select("insight_type, content, sentiment")
+          .limit(10);
+
+        if (insights && insights.length > 0) {
+          const insightContext = insights.map((i) =>
+            `[${i.insight_type}] ${i.content}`
+          ).join("\n");
+          additionalContext += `\n\n=== CALL INSIGHTS ===\nReal objections, signals, and wins from sales calls:\n\n${insightContext}`;
+        }
+      }
+    }
+
+    const { blocks: systemBlocks } = await buildSystemBlocks({
+      additionalContext,
+    });
+
+    let enrichedPrompt = prompt;
+    if (mode === "battle_card") {
+      enrichedPrompt = `Create a competitive battle card presentation about: ${prompt}. Include slides for: company overview, their strengths and weaknesses, our advantages (use comparison_table), head-to-head feature comparison, objection handling responses, customer proof points (use stats_callout or quote), and win strategy. Use the competitive intelligence and brand docs provided — no generic filler.`;
+    } else if (mode === "sales_deck") {
+      enrichedPrompt = `Create a sales pitch deck for: ${prompt}. Include slides for: attention-grabbing opening with a bold claim, the problem/pain point (use stats_callout with real numbers), our solution, key differentiators (use three_cards), social proof (use quote layout with real customer insight if available), comparison with alternatives (use comparison_table), ROI/impact, and a strong closing CTA. Ground everything in the brand context and call insights provided.`;
+    }
+
+    const claude = getClaudeClient();
+
+    const response = await claude.messages.create({
+      model: resolveModel("claude-sonnet-4-6"),
+      max_tokens: MAX_TOKENS,
+      system: systemBlocks,
       messages: [{ role: "user", content: enrichedPrompt }],
     });
 
-    const text = response.content
-      .filter((b): b is Anthropic.TextBlock => b.type === "text")
-      .map((b) => b.text)
-      .join("");
+    logCachePerformance("/api/decks/generate", response.usage);
+
+    let text = "";
+    for (const block of response.content) {
+      if (block.type === "text") text += block.text;
+    }
 
     // Extract JSON from response
     const jsonMatch = text.match(/\{[\s\S]*\}/);
