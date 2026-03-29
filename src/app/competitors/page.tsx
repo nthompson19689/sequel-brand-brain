@@ -295,50 +295,71 @@ export default function CompetitorsPage() {
         body: JSON.stringify(body),
       });
 
-      if (!res.ok) throw new Error("Failed to start scan");
-
-      const data = await res.json();
-      const scanId = data.scan_id;
-
-      // Connect to SSE for progress
-      if (scanId) {
-        const es = new EventSource(`/api/competitors/scan/progress?scan_id=${scanId}`);
-        eventSourceRef.current = es;
-
-        es.onmessage = (event) => {
-          try {
-            const progress = JSON.parse(event.data) as ScanProgress;
-            setScanProgress((prev) => {
-              const idx = prev.findIndex(
-                (p) => p.competitor_id === progress.competitor_id && p.method === progress.method
-              );
-              if (idx >= 0) {
-                const next = [...prev];
-                next[idx] = progress;
-                return next;
-              }
-              return [...prev, progress];
-            });
-          } catch {}
-        };
-
-        es.addEventListener("done", () => {
-          es.close();
-          eventSourceRef.current = null;
-          setScanning(false);
-          loadData();
-        });
-
-        es.onerror = () => {
-          es.close();
-          eventSourceRef.current = null;
-          setScanning(false);
-          loadData();
-        };
-      } else {
-        setScanning(false);
-        loadData();
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || "Failed to start scan");
       }
+
+      // The API returns an SSE stream directly — read it from the response body
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("No response stream");
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || ""; // Keep incomplete line in buffer
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const event = JSON.parse(line.slice(6));
+
+            if (event.type === "scan_complete") {
+              // Scan finished
+              continue;
+            }
+
+            if (event.type === "error") {
+              console.error("Scan error:", event.error);
+              continue;
+            }
+
+            // Treat as progress update
+            if (event.competitor_id || event.competitor_name || event.method) {
+              const progress: ScanProgress = {
+                competitor_id: event.competitor_id || "",
+                competitor_name: event.competitor_name || event.name || event.competitor || "",
+                method: event.method || "",
+                status: event.status || event.type || "running",
+                message: event.message || "",
+              };
+              setScanProgress((prev) => {
+                const idx = prev.findIndex(
+                  (p) => p.competitor_id === progress.competitor_id && p.method === progress.method
+                );
+                if (idx >= 0) {
+                  const next = [...prev];
+                  next[idx] = progress;
+                  return next;
+                }
+                return [...prev, progress];
+              });
+            }
+          } catch {
+            // Ignore unparseable lines
+          }
+        }
+      }
+
+      // Stream finished — reload data
+      setScanning(false);
+      loadData();
     } catch (err) {
       console.error("Scan failed:", err);
       alert("Failed to start scan. Try again.");
