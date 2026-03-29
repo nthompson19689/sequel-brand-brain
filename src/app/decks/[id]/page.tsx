@@ -89,7 +89,9 @@ function FormattingToolbar({ visible }: { visible: boolean }) {
   };
 
   return (
-    <div className="flex items-center gap-1 px-4 py-1.5 bg-[#1e1e2e] border-b border-[#3a3a4e] shrink-0 flex-wrap">
+    <div
+      onMouseDown={(e) => e.preventDefault()}
+      className="flex items-center gap-1 px-4 py-1.5 bg-[#1e1e2e] border-b border-[#3a3a4e] shrink-0 flex-wrap">
       {/* Font family */}
       <select
         onChange={(e) => exec("fontName", e.target.value)}
@@ -300,12 +302,17 @@ function DraggableBox({
         top: py,
         width: pw,
         height: ph,
-        cursor: selected ? "move" : "default",
+        cursor: "default",
         outline: selected ? "2px solid #3b82f6" : "none",
         zIndex: selected ? 10 : 1,
       }}
       onMouseDown={(e) => {
         if (!selected) { setSelected(true); return; }
+        // Don't start drag if clicking on an editable element — let text editing work
+        const target = e.target as HTMLElement;
+        if (target.isContentEditable || target.closest("[contenteditable]") || target.tagName === "INPUT" || target.tagName === "TEXTAREA") {
+          return; // Let the click pass through to the text editor
+        }
         handleMouseDown(e, "move");
       }}
     >
