@@ -126,10 +126,15 @@ async function handleScrape(body: Record<string, unknown>) {
 
   const apiHost = process.env.RAPIDAPI_LINKEDIN_HOST || RAPIDAPI_HOST;
   const headers: Record<string, string> = {
-    "x-rapidapi-key": rapidApiKey,
+    "x-rapidapi-key": rapidApiKey.trim(),
     "x-rapidapi-host": apiHost,
-    "Content-Type": "application/json",
   };
+
+  // Log key info for debugging (first/last 4 chars only)
+  const keyPreview = rapidApiKey.trim().length > 8
+    ? `${rapidApiKey.trim().slice(0, 4)}...${rapidApiKey.trim().slice(-4)}`
+    : "(too short)";
+  console.log(`LinkedIn scrape: using key ${keyPreview}, host ${apiHost}, url ${normalizedUrl}`);
 
   try {
     // Fetch posts directly — this API takes the LinkedIn URL, no URN needed
