@@ -57,7 +57,7 @@ export async function GET() {
 
     const { data, error } = await supabase
       .from("linkedin_scheduled_posts")
-      .select("id, content, status, scheduled_for, published_at, created_at")
+      .select("id, post_content, status, scheduled_for, published_at, created_at")
       .eq("user_id", session.user.id)
       .order("created_at", { ascending: false });
 
@@ -97,7 +97,7 @@ async function handleQuickPublish(body: Record<string, unknown>, userId: string,
     .from("linkedin_scheduled_posts")
     .insert({
       user_id: userId,
-      content,
+      post_content: content,
       status: "published",
       published_at: new Date().toISOString(),
     })
@@ -128,7 +128,7 @@ async function handleSchedule(body: Record<string, unknown>, userId: string, sup
     .from("linkedin_scheduled_posts")
     .insert({
       user_id: userId,
-      content,
+      post_content: content,
       status: "scheduled",
       scheduled_for,
     })
@@ -156,7 +156,7 @@ async function handleSaveDraft(body: Record<string, unknown>, userId: string, su
     .from("linkedin_scheduled_posts")
     .insert({
       user_id: userId,
-      content,
+      post_content: content,
       status: "draft",
     })
     .select("id")
