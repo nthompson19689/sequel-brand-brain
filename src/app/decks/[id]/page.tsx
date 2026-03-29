@@ -109,6 +109,7 @@ function FormattingToolbar({ visible }: { visible: boolean }) {
 
   return (
     <div
+      data-formatting-toolbar
       onMouseDown={(e) => {
         // Prevent focus loss from contentEditable, but allow select dropdowns to work
         const tag = (e.target as HTMLElement).tagName;
@@ -398,24 +399,36 @@ function EditableText({
     onFocusChange?.(true);
   }, [onFocusChange]);
 
-  const handleBlur = useCallback(() => {
-    setFocused(false);
-    onFocusChange?.(false);
-    if (ref.current) {
-      const html = ref.current.innerHTML;
-      // Check if there's any actual formatting (tags beyond just text)
-      const hasFormatting = /<[^>]+>/.test(html);
-      if (hasFormatting) {
-        // Store as HTML
-        if (html !== value) onChange(html);
-      } else {
-        // Plain text — store as plain
-        const text = multiline
-          ? ref.current.innerText
-          : ref.current.innerText.replace(/\n/g, " ");
-        if (text !== value) onChange(text);
-      }
+  const handleBlur = useCallback((e: React.FocusEvent) => {
+    // If focus is moving to the formatting toolbar, don't close it
+    const relatedTarget = e.relatedTarget as HTMLElement | null;
+    if (relatedTarget?.closest("[data-formatting-toolbar]")) {
+      return; // Focus moved to toolbar — keep editing state
     }
+
+    // Small delay to handle cases where relatedTarget is null (e.g., select dropdowns)
+    setTimeout(() => {
+      // Check if focus is now inside the toolbar
+      const active = document.activeElement as HTMLElement | null;
+      if (active?.closest("[data-formatting-toolbar]")) {
+        return; // Focus is in toolbar — keep editing state
+      }
+
+      setFocused(false);
+      onFocusChange?.(false);
+      if (ref.current) {
+        const html = ref.current.innerHTML;
+        const hasFormatting = /<[^>]+>/.test(html);
+        if (hasFormatting) {
+          if (html !== value) onChange(html);
+        } else {
+          const text = multiline
+            ? ref.current.innerText
+            : ref.current.innerText.replace(/\n/g, " ");
+          if (text !== value) onChange(text);
+        }
+      }
+    }, 100);
   }, [value, onChange, multiline, onFocusChange]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
