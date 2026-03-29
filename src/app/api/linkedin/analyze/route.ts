@@ -18,38 +18,7 @@ interface VoiceProfile {
   voice_summary: string;
 }
 
-const SCRAPE_SYSTEM = `You are a LinkedIn post researcher. Your job is to find a person's actual LinkedIn posts using web search.
-
-You will be given a LinkedIn profile URL and optionally a person's name. Use web search to find their LinkedIn posts.
-
-Search strategies (try ALL of these):
-1. Search "site:linkedin.com/posts [person name]"
-2. Search "[person name] linkedin posts"
-3. Search "site:linkedin.com [profile_url]"
-4. Search "[person name] site:linkedin.com"
-
-CRITICAL ANTI-HALLUCINATION RULES:
-- ONLY return text you can see VERBATIM in the search results or on a page you visited.
-- Every post MUST include a "source_url" — the actual URL where you found it. If you cannot provide a real URL, do NOT include the post.
-- NEVER invent, imagine, reconstruct, or "fill in" post content. If you can only see a snippet, return ONLY that snippet — do NOT expand it.
-- It is MUCH better to return 1-2 real posts (or even zero) than to return fake ones.
-- If a search result only shows a preview/snippet of a post, set "partial" to true and return ONLY the visible text.
-- If you find ZERO verifiable posts, return { "posts": [] }. This is a completely valid outcome.
-- Do NOT apologize or explain if you find nothing — just return the empty array.
-
-You MUST return ONLY valid JSON (no markdown, no code fences, no explanation) in this format:
-{
-  "posts": [
-    {
-      "text": "ONLY the exact text you can see — never fabricated or expanded",
-      "source_url": "https://linkedin.com/posts/... the actual URL",
-      "partial": false,
-      "preview": "First 100 characters..."
-    }
-  ]
-}
-
-Return ONLY the JSON object.`;
+const RAPIDAPI_HOST = "fresh-linkedin-scraper-api.p.rapidapi.com";
 
 const ANALYZE_SYSTEM = `You are a LinkedIn voice analyst. Your job is to analyze a set of LinkedIn posts and extract the writer's voice profile.
 
@@ -122,87 +91,116 @@ export async function POST(request: Request) {
 
 // ─── action="scrape" ───────────────────────────────────────────────────────────
 
+/**
+ * Extract the LinkedIn username from a profile URL.
+ * Handles: linkedin.com/in/username, linkedin.com/in/username/, with or without https/www
+ */
+function extractLinkedInUsername(url: string): string | null {
+  const match = url.match(/linkedin\.com\/in\/([^/?#]+)/);
+  return match ? match[1] : null;
+}
+
 async function handleScrape(body: Record<string, unknown>) {
-  const { linkedin_url, full_name } = body;
+  const { linkedin_url } = body;
   if (!linkedin_url || typeof linkedin_url !== "string") {
     return Response.json({ error: "linkedin_url is required" }, { status: 400 });
   }
 
-  const claude = getClaudeClient();
-  const nameStr = full_name && typeof full_name === "string" ? full_name : "";
-
-  const searchInstructions = [
-    `Search for: site:linkedin.com ${linkedin_url} posts`,
-    nameStr ? `Also search for: ${nameStr} linkedin posts` : null,
-    nameStr ? `Also try: site:linkedin.com/posts ${nameStr}` : null,
-  ].filter(Boolean).join("\n");
-
-  // Use an agentic loop: Claude may need multiple turns of web_search before
-  // producing a final text response with JSON.
-  type MessageParam = { role: "user" | "assistant"; content: unknown };
-  const messages: MessageParam[] = [
-    {
-      role: "user",
-      content: `Find LinkedIn posts from this profile: ${linkedin_url}${nameStr ? `\nPerson's name: ${nameStr}` : ""}\n\n${searchInstructions}\n\nReturn the posts as JSON.`,
-    },
-  ];
-
-  let rawText = "";
-  const MAX_TURNS = 6;
-
-  for (let turn = 0; turn < MAX_TURNS; turn++) {
-    const response = await claude.messages.create({
-      model: resolveModel("claude-sonnet-4-6"),
-      max_tokens: MAX_TOKENS,
-      system: [{ type: "text", text: SCRAPE_SYSTEM }],
-      tools: [{ type: "web_search_20250305" as const, name: "web_search", max_uses: 10 }],
-      messages,
-    });
-
-    // Collect any text blocks from this turn
-    for (const block of response.content) {
-      if (block.type === "text") rawText += block.text;
-    }
-
-    // If Claude is done (not requesting another tool call), break
-    if (response.stop_reason !== "tool_use") break;
-
-    // Otherwise, feed the assistant response back and add an empty user turn
-    // so the API can continue (server-side tools auto-resolve, but we still
-    // need to continue the conversation loop).
-    messages.push({ role: "assistant", content: response.content });
-    // For server-side tools like web_search, the API handles the tool result
-    // internally. We just need to send a continuation user message.
-    messages.push({ role: "user", content: "Continue searching and return the JSON when done." });
+  const rapidApiKey = process.env.RAPIDAPI_KEY;
+  if (!rapidApiKey) {
+    return Response.json(
+      { error: "LinkedIn scraping is not configured. Please add RAPIDAPI_KEY to your environment variables." },
+      { status: 503 }
+    );
   }
 
-  // Parse the JSON from accumulated text blocks
+  const username = extractLinkedInUsername(linkedin_url);
+  if (!username) {
+    return Response.json(
+      { error: "Could not extract username from LinkedIn URL. Please use a URL like linkedin.com/in/username" },
+      { status: 400 }
+    );
+  }
+
   try {
-    // Try to find a JSON object with a "posts" key
-    const jsonMatch = rawText.match(/\{[\s\S]*"posts"[\s\S]*\}/);
-    if (!jsonMatch) {
-      // If no JSON found at all, return empty posts (not an error — Claude
-      // may legitimately have found nothing)
-      console.log("LinkedIn scrape: no JSON found in response. rawText:", rawText.slice(0, 500));
-      return Response.json({ posts: [] });
+    // Step 1: Get the user's profile to retrieve their URN
+    const profileRes = await fetch(
+      `https://${RAPIDAPI_HOST}/api/v1/user/profile?username=${encodeURIComponent(username)}`,
+      {
+        method: "GET",
+        headers: {
+          "x-rapidapi-key": rapidApiKey,
+          "x-rapidapi-host": RAPIDAPI_HOST,
+        },
+      }
+    );
+
+    if (!profileRes.ok) {
+      const errText = await profileRes.text();
+      console.error("LinkedIn profile fetch failed:", profileRes.status, errText);
+      return Response.json(
+        { error: `Failed to fetch LinkedIn profile (${profileRes.status}). Check the URL and try again.` },
+        { status: 502 }
+      );
     }
-    const result = JSON.parse(jsonMatch[0]);
-    const rawPosts: Array<{ text?: string; source_url?: string; partial?: boolean; preview?: string }> =
-      result.posts || [];
 
-    // Filter out posts without a real LinkedIn source URL (anti-hallucination)
-    const verifiedPosts = rawPosts.filter((p) => {
-      if (!p.text || typeof p.text !== "string" || p.text.trim().length === 0) return false;
-      if (!p.source_url || typeof p.source_url !== "string") return false;
-      // Must be an actual LinkedIn URL, not a placeholder
-      return p.source_url.includes("linkedin.com/");
-    });
+    const profileData = await profileRes.json();
+    const urn = profileData?.urn || profileData?.data?.urn || profileData?.profile?.urn;
 
-    return Response.json({ posts: verifiedPosts });
-  } catch (parseErr) {
-    console.error("LinkedIn scrape JSON parse error:", parseErr, "rawText:", rawText.slice(0, 500));
-    // Return empty posts instead of a hard error — better UX
-    return Response.json({ posts: [] });
+    if (!urn) {
+      console.error("LinkedIn profile response missing URN:", JSON.stringify(profileData).slice(0, 500));
+      return Response.json(
+        { error: "Could not find LinkedIn profile URN. The profile may be private or the URL may be incorrect." },
+        { status: 404 }
+      );
+    }
+
+    // Step 2: Fetch the user's posts using their URN (get first 2 pages)
+    const allPosts: Array<{ text: string; preview: string; source_url: string }> = [];
+
+    for (let page = 1; page <= 2; page++) {
+      const postsRes = await fetch(
+        `https://${RAPIDAPI_HOST}/api/v1/user/posts?urn=${encodeURIComponent(urn)}&page=${page}`,
+        {
+          method: "GET",
+          headers: {
+            "x-rapidapi-key": rapidApiKey,
+            "x-rapidapi-host": RAPIDAPI_HOST,
+          },
+        }
+      );
+
+      if (!postsRes.ok) {
+        console.error(`LinkedIn posts page ${page} fetch failed:`, postsRes.status);
+        break;
+      }
+
+      const postsData = await postsRes.json();
+      const posts = postsData?.data || postsData?.posts || postsData || [];
+
+      if (!Array.isArray(posts) || posts.length === 0) break;
+
+      for (const post of posts) {
+        // The API may return text in different fields depending on version
+        const text = post.text || post.content || post.commentary || "";
+        if (typeof text === "string" && text.trim().length > 0) {
+          allPosts.push({
+            text: text.trim(),
+            preview: text.trim().slice(0, 100),
+            source_url: post.url || post.postUrl || post.share_url || "",
+          });
+        }
+      }
+
+      // Stop if we have enough posts
+      if (allPosts.length >= 15) break;
+    }
+
+    return Response.json({ posts: allPosts });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    console.error("LinkedIn scrape error:", message);
+    return Response.json({ error: `Failed to fetch LinkedIn posts: ${message}` }, { status: 500 });
   }
 }
 
