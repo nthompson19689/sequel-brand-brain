@@ -82,19 +82,43 @@ const TEXT_COLORS = [
 ];
 
 function FormattingToolbar({ visible }: { visible: boolean }) {
+  const savedRange = useRef<Range | null>(null);
+
+  // Save selection before focus leaves contentEditable (e.g., when opening a select dropdown)
+  const saveSelection = useCallback(() => {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+      savedRange.current = sel.getRangeAt(0).cloneRange();
+    }
+  }, []);
+
+  const restoreSelection = useCallback(() => {
+    if (savedRange.current) {
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(savedRange.current);
+    }
+  }, []);
+
   if (!visible) return null;
 
   const exec = (cmd: string, val?: string) => {
+    restoreSelection();
     document.execCommand(cmd, false, val);
   };
 
   return (
     <div
-      onMouseDown={(e) => e.preventDefault()}
+      onMouseDown={(e) => {
+        // Prevent focus loss from contentEditable, but allow select dropdowns to work
+        const tag = (e.target as HTMLElement).tagName;
+        if (tag !== "SELECT" && tag !== "OPTION") e.preventDefault();
+      }}
       className="flex items-center gap-1 px-4 py-1.5 bg-[#1e1e2e] border-b border-[#3a3a4e] shrink-0 flex-wrap">
       {/* Font family */}
       <select
-        onChange={(e) => exec("fontName", e.target.value)}
+        onMouseDown={saveSelection}
+        onChange={(e) => { exec("fontName", e.target.value); e.target.value = ""; }}
         defaultValue=""
         className="bg-[#2a2a3e] text-gray-300 text-[11px] border border-[#3a3a4e] rounded px-1.5 py-1 focus:outline-none focus:border-purple-500 w-28"
       >
@@ -104,14 +128,25 @@ function FormattingToolbar({ visible }: { visible: boolean }) {
 
       {/* Font size */}
       <select
+        onMouseDown={saveSelection}
         onChange={(e) => {
-          // execCommand fontSize only takes 1-7, so we use a span with inline style instead
+          const size = e.target.value;
+          e.target.value = "";
+          restoreSelection();
+          // Use fontSize command with 1-7 scale, then fix the generated font tag
+          document.execCommand("fontSize", false, "7");
+          // Find the font element just created and replace with a span
           const sel = window.getSelection();
-          if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
-            const range = sel.getRangeAt(0);
-            const span = document.createElement("span");
-            span.style.fontSize = e.target.value;
-            range.surroundContents(span);
+          if (sel && sel.rangeCount > 0) {
+            const container = sel.anchorNode?.parentElement;
+            const fonts = container?.closest("[contenteditable]")?.querySelectorAll('font[size="7"]') ||
+                          container?.querySelectorAll?.('font[size="7"]') || [];
+            fonts.forEach((font) => {
+              const span = document.createElement("span");
+              span.style.fontSize = size;
+              span.innerHTML = font.innerHTML;
+              font.replaceWith(span);
+            });
           }
         }}
         defaultValue=""
