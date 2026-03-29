@@ -66,11 +66,143 @@ function FormattedText({ text, style, accentColor }: { text: string; style?: Rea
   );
 }
 
+// ─── Formatting Toolbar ──────────────────────────────────────────────────────
+
+const FONT_FAMILIES = [
+  "Arial", "Calibri", "Georgia", "Helvetica", "Times New Roman",
+  "Verdana", "Trebuchet MS", "Garamond", "Palatino", "Impact",
+];
+
+const FONT_SIZES = ["10px", "12px", "14px", "16px", "18px", "20px", "24px", "28px", "32px", "36px", "40px", "48px"];
+
+const TEXT_COLORS = [
+  "#000000", "#ffffff", "#1a1a2e", "#374151", "#6b7280",
+  "#7C3AED", "#6D28D9", "#3B82F6", "#10B981", "#F59E0B",
+  "#EF4444", "#EC4899", "#8B5CF6", "#06B6D4", "#84CC16",
+];
+
+function FormattingToolbar({ visible }: { visible: boolean }) {
+  if (!visible) return null;
+
+  const exec = (cmd: string, val?: string) => {
+    document.execCommand(cmd, false, val);
+  };
+
+  return (
+    <div className="flex items-center gap-1 px-4 py-1.5 bg-[#1e1e2e] border-b border-[#3a3a4e] shrink-0 flex-wrap">
+      {/* Font family */}
+      <select
+        onChange={(e) => exec("fontName", e.target.value)}
+        defaultValue=""
+        className="bg-[#2a2a3e] text-gray-300 text-[11px] border border-[#3a3a4e] rounded px-1.5 py-1 focus:outline-none focus:border-purple-500 w-28"
+      >
+        <option value="" disabled>Font</option>
+        {FONT_FAMILIES.map((f) => <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>)}
+      </select>
+
+      {/* Font size */}
+      <select
+        onChange={(e) => {
+          // execCommand fontSize only takes 1-7, so we use a span with inline style instead
+          const sel = window.getSelection();
+          if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
+            const range = sel.getRangeAt(0);
+            const span = document.createElement("span");
+            span.style.fontSize = e.target.value;
+            range.surroundContents(span);
+          }
+        }}
+        defaultValue=""
+        className="bg-[#2a2a3e] text-gray-300 text-[11px] border border-[#3a3a4e] rounded px-1.5 py-1 focus:outline-none focus:border-purple-500 w-16"
+      >
+        <option value="" disabled>Size</option>
+        {FONT_SIZES.map((s) => <option key={s} value={s}>{parseInt(s)}px</option>)}
+      </select>
+
+      <div className="w-px h-5 bg-[#3a3a4e] mx-1" />
+
+      {/* Bold / Italic / Underline / Strikethrough */}
+      <button onClick={() => exec("bold")} title="Bold (Ctrl+B)"
+        className="w-7 h-7 flex items-center justify-center text-gray-300 hover:bg-[#3a3a4e] rounded text-xs font-bold">B</button>
+      <button onClick={() => exec("italic")} title="Italic (Ctrl+I)"
+        className="w-7 h-7 flex items-center justify-center text-gray-300 hover:bg-[#3a3a4e] rounded text-xs italic">I</button>
+      <button onClick={() => exec("underline")} title="Underline (Ctrl+U)"
+        className="w-7 h-7 flex items-center justify-center text-gray-300 hover:bg-[#3a3a4e] rounded text-xs underline">U</button>
+      <button onClick={() => exec("strikeThrough")} title="Strikethrough"
+        className="w-7 h-7 flex items-center justify-center text-gray-300 hover:bg-[#3a3a4e] rounded text-xs line-through">S</button>
+
+      <div className="w-px h-5 bg-[#3a3a4e] mx-1" />
+
+      {/* Text alignment */}
+      <button onClick={() => exec("justifyLeft")} title="Align Left"
+        className="w-7 h-7 flex items-center justify-center text-gray-300 hover:bg-[#3a3a4e] rounded">
+        <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M3 4h18v2H3V4zm0 4h12v2H3V8zm0 4h18v2H3v-2zm0 4h12v2H3v-2z"/></svg>
+      </button>
+      <button onClick={() => exec("justifyCenter")} title="Align Center"
+        className="w-7 h-7 flex items-center justify-center text-gray-300 hover:bg-[#3a3a4e] rounded">
+        <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M3 4h18v2H3V4zm3 4h12v2H6V8zm-3 4h18v2H3v-2zm3 4h12v2H6v-2z"/></svg>
+      </button>
+      <button onClick={() => exec("justifyRight")} title="Align Right"
+        className="w-7 h-7 flex items-center justify-center text-gray-300 hover:bg-[#3a3a4e] rounded">
+        <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M3 4h18v2H3V4zm6 4h12v2H9V8zm-6 4h18v2H3v-2zm6 4h12v2H9v-2z"/></svg>
+      </button>
+
+      <div className="w-px h-5 bg-[#3a3a4e] mx-1" />
+
+      {/* Lists */}
+      <button onClick={() => exec("insertUnorderedList")} title="Bullet List"
+        className="w-7 h-7 flex items-center justify-center text-gray-300 hover:bg-[#3a3a4e] rounded text-xs">•≡</button>
+      <button onClick={() => exec("insertOrderedList")} title="Numbered List"
+        className="w-7 h-7 flex items-center justify-center text-gray-300 hover:bg-[#3a3a4e] rounded text-xs">1.</button>
+
+      <div className="w-px h-5 bg-[#3a3a4e] mx-1" />
+
+      {/* Text color */}
+      <div className="relative group">
+        <button className="w-7 h-7 flex items-center justify-center text-gray-300 hover:bg-[#3a3a4e] rounded text-xs" title="Text Color">
+          A<span className="block w-4 h-0.5 bg-red-500 mt-px" />
+        </button>
+        <div className="absolute top-full left-0 mt-1 bg-[#2a2a3e] border border-[#3a3a4e] rounded-lg shadow-xl p-2 hidden group-hover:grid grid-cols-5 gap-1 z-50 w-[120px]">
+          {TEXT_COLORS.map((c) => (
+            <button key={c} onClick={() => exec("foreColor", c)}
+              className="w-5 h-5 rounded border border-[#3a3a4e] hover:scale-110 transition-transform"
+              style={{ backgroundColor: c }} title={c} />
+          ))}
+        </div>
+      </div>
+
+      {/* Highlight color */}
+      <div className="relative group">
+        <button className="w-7 h-7 flex items-center justify-center text-gray-300 hover:bg-[#3a3a4e] rounded text-xs" title="Highlight">
+          <span className="bg-yellow-300/60 px-1 rounded text-[10px]">A</span>
+        </button>
+        <div className="absolute top-full left-0 mt-1 bg-[#2a2a3e] border border-[#3a3a4e] rounded-lg shadow-xl p-2 hidden group-hover:grid grid-cols-5 gap-1 z-50 w-[120px]">
+          {["transparent", "#fef08a", "#bbf7d0", "#bfdbfe", "#e9d5ff", "#fecaca", "#fed7aa", "#d1d5db"].map((c) => (
+            <button key={c} onClick={() => exec("hiliteColor", c)}
+              className="w-5 h-5 rounded border border-[#3a3a4e] hover:scale-110 transition-transform"
+              style={{ backgroundColor: c === "transparent" ? "#1e1e2e" : c }}
+              title={c === "transparent" ? "None" : c} />
+          ))}
+        </div>
+      </div>
+
+      <div className="w-px h-5 bg-[#3a3a4e] mx-1" />
+
+      {/* Clear formatting */}
+      <button onClick={() => exec("removeFormat")} title="Clear Formatting"
+        className="w-7 h-7 flex items-center justify-center text-gray-400 hover:bg-[#3a3a4e] rounded text-[10px]">
+        T̸
+      </button>
+    </div>
+  );
+}
+
 // ─── Editable Text Component ─────────────────────────────────────────────────
 
 function EditableText({
   value,
   onChange,
+  onFocusChange,
   className,
   style,
   placeholder,
@@ -78,6 +210,7 @@ function EditableText({
 }: {
   value: string;
   onChange: (v: string) => void;
+  onFocusChange?: (focused: boolean) => void;
   className?: string;
   style?: React.CSSProperties;
   placeholder?: string;
@@ -86,15 +219,30 @@ function EditableText({
   const ref = useRef<HTMLDivElement>(null);
   const [focused, setFocused] = useState(false);
 
+  const handleFocus = useCallback(() => {
+    setFocused(true);
+    onFocusChange?.(true);
+  }, [onFocusChange]);
+
   const handleBlur = useCallback(() => {
     setFocused(false);
+    onFocusChange?.(false);
     if (ref.current) {
-      const text = multiline
-        ? ref.current.innerText
-        : ref.current.innerText.replace(/\n/g, " ");
-      if (text !== value) onChange(text);
+      const html = ref.current.innerHTML;
+      // Check if there's any actual formatting (tags beyond just text)
+      const hasFormatting = /<[^>]+>/.test(html);
+      if (hasFormatting) {
+        // Store as HTML
+        if (html !== value) onChange(html);
+      } else {
+        // Plain text — store as plain
+        const text = multiline
+          ? ref.current.innerText
+          : ref.current.innerText.replace(/\n/g, " ");
+        if (text !== value) onChange(text);
+      }
     }
-  }, [value, onChange, multiline]);
+  }, [value, onChange, multiline, onFocusChange]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (!multiline && e.key === "Enter") {
@@ -105,7 +253,12 @@ function EditableText({
 
   useEffect(() => {
     if (ref.current && !focused) {
-      ref.current.innerText = value || "";
+      // Check if value contains HTML
+      if (/<[^>]+>/.test(value || "")) {
+        ref.current.innerHTML = value || "";
+      } else {
+        ref.current.innerText = value || "";
+      }
     }
   }, [value, focused]);
 
@@ -114,7 +267,7 @@ function EditableText({
       ref={ref}
       contentEditable
       suppressContentEditableWarning
-      onFocus={() => setFocused(true)}
+      onFocus={handleFocus}
       onBlur={handleBlur}
       onKeyDown={handleKeyDown}
       data-placeholder={placeholder}
@@ -138,6 +291,7 @@ function SlideCanvas({
   dark,
   interactive,
   scale,
+  onEditingChange,
 }: {
   slide: Slide;
   onChange?: (s: Slide) => void;
@@ -146,6 +300,7 @@ function SlideCanvas({
   dark: boolean;
   interactive?: boolean;
   scale?: number;
+  onEditingChange?: (editing: boolean) => void;
 }) {
   const s = fontScale(fonts.sizePreset);
   const sc = scale || 1;
@@ -155,6 +310,7 @@ function SlideCanvas({
   const headerFont = fonts.header;
   const bodyFont = fonts.body;
   const editable = interactive && onChange;
+  const handleFocusChange = onEditingChange;
 
   const edit = (field: string, val: string) => {
     if (onChange) onChange({ ...slide, [field]: val });
@@ -231,13 +387,13 @@ function SlideCanvas({
         <div style={{ height: `${6 * sc}px`, background: colors.primary }} />
         <div style={{ padding: `${48 * sc}px ${64 * sc}px` }}>
           {editable ? (
-            <EditableText value={slide.title} onChange={(v) => edit("title", v)} placeholder="Slide Title"
+            <EditableText value={slide.title} onChange={(v) => edit("title", v)} onFocusChange={handleFocusChange} placeholder="Slide Title"
               style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${28 * sc}px` }} />
           ) : (
             <div style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${28 * sc}px` }}>{slide.title || "Slide Title"}</div>
           )}
           {editable ? (
-            <EditableText value={slide.body || ""} onChange={(v) => edit("body", v)} placeholder="• Point 1\n• Point 2\n• Point 3" multiline
+            <EditableText onFocusChange={handleFocusChange} value={slide.body || ""} onChange={(v) => edit("body", v)} placeholder="• Point 1\n• Point 2\n• Point 3" multiline
               style={{ fontSize: `${16 * s * sc}px`, lineHeight: 1.8, whiteSpace: "pre-wrap" }} />
           ) : (
             <FormattedText text={slide.body || ""} accentColor={colors.accent}
@@ -255,13 +411,13 @@ function SlideCanvas({
         {/* Left */}
         <div style={{ flex: 1, padding: `${48 * sc}px ${48 * sc}px`, display: "flex", flexDirection: "column", justifyContent: "center" }}>
           {editable ? (
-            <EditableText value={slide.title} onChange={(v) => edit("title", v)} placeholder="Title"
+            <EditableText value={slide.title} onChange={(v) => edit("title", v)} onFocusChange={handleFocusChange} placeholder="Title"
               style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${20 * sc}px` }} />
           ) : (
             <div style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${20 * sc}px` }}>{slide.title}</div>
           )}
           {editable ? (
-            <EditableText value={slide.body || ""} onChange={(v) => edit("body", v)} placeholder="Content..." multiline
+            <EditableText onFocusChange={handleFocusChange} value={slide.body || ""} onChange={(v) => edit("body", v)} placeholder="Content..." multiline
               style={{ fontSize: `${14 * s * sc}px`, lineHeight: 1.7, whiteSpace: "pre-wrap" }} />
           ) : (
             <FormattedText text={slide.body || ""} accentColor={colors.accent}
@@ -271,7 +427,7 @@ function SlideCanvas({
         {/* Right accent panel */}
         <div style={{ width: "38%", background: lightenHex(colors.primary, 180), display: "flex", alignItems: "center", justifyContent: "center", padding: `${40 * sc}px` }}>
           {editable ? (
-            <EditableText value={slide.subtitle || ""} onChange={(v) => edit("subtitle", v)} placeholder="Right column..."
+            <EditableText onFocusChange={handleFocusChange} value={slide.subtitle || ""} onChange={(v) => edit("subtitle", v)} placeholder="Right column..."
               style={{ fontSize: `${16 * s * sc}px`, color: colors.primary, textAlign: "center", fontWeight: 600 }} multiline />
           ) : (
             <div style={{ fontSize: `${16 * s * sc}px`, color: colors.primary, textAlign: "center", fontWeight: 600 }}>{slide.subtitle}</div>
@@ -288,7 +444,7 @@ function SlideCanvas({
       <div style={canvasStyle}>
         <div style={{ padding: `${48 * sc}px ${64 * sc}px` }}>
           {editable ? (
-            <EditableText value={slide.title} onChange={(v) => edit("title", v)} placeholder="Section Title"
+            <EditableText value={slide.title} onChange={(v) => edit("title", v)} onFocusChange={handleFocusChange} placeholder="Section Title"
               style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${32 * sc}px`, textAlign: "center" }} />
           ) : (
             <div style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${32 * sc}px`, textAlign: "center" }}>{slide.title}</div>
@@ -302,11 +458,11 @@ function SlideCanvas({
               }}>
                 {editable ? (
                   <>
-                    <EditableText value={card.icon} onChange={(v) => editCard(ci, "icon", v)}
+                    <EditableText onFocusChange={handleFocusChange} value={card.icon} onChange={(v) => editCard(ci, "icon", v)}
                       style={{ fontSize: `${28 * sc}px`, marginBottom: `${10 * sc}px` }} />
-                    <EditableText value={card.title} onChange={(v) => editCard(ci, "title", v)} placeholder="Card Title"
+                    <EditableText onFocusChange={handleFocusChange} value={card.title} onChange={(v) => editCard(ci, "title", v)} placeholder="Card Title"
                       style={{ fontSize: `${14 * s * sc}px`, fontWeight: 700, marginBottom: `${8 * sc}px` }} />
-                    <EditableText value={card.body} onChange={(v) => editCard(ci, "body", v)} placeholder="Description" multiline
+                    <EditableText onFocusChange={handleFocusChange} value={card.body} onChange={(v) => editCard(ci, "body", v)} placeholder="Description" multiline
                       style={{ fontSize: `${12 * s * sc}px`, color: fgSub, lineHeight: 1.5 }} />
                   </>
                 ) : (
@@ -340,9 +496,9 @@ function SlideCanvas({
             <div key={si} style={{ textAlign: "center" }}>
               {editable ? (
                 <>
-                  <EditableText value={stat.value} onChange={(v) => editStat(si, "value", v)} placeholder="0"
+                  <EditableText onFocusChange={handleFocusChange} value={stat.value} onChange={(v) => editStat(si, "value", v)} placeholder="0"
                     style={{ fontSize: `${48 * s * sc}px`, fontWeight: 700, color: colors.accent }} />
-                  <EditableText value={stat.label} onChange={(v) => editStat(si, "label", v)} placeholder="Label"
+                  <EditableText onFocusChange={handleFocusChange} value={stat.label} onChange={(v) => editStat(si, "label", v)} placeholder="Label"
                     style={{ fontSize: `${14 * s * sc}px`, color: fgSub, marginTop: `${8 * sc}px` }} />
                 </>
               ) : (
@@ -366,7 +522,7 @@ function SlideCanvas({
       <div style={canvasStyle}>
         <div style={{ padding: `${48 * sc}px ${64 * sc}px` }}>
           {editable ? (
-            <EditableText value={slide.title} onChange={(v) => edit("title", v)} placeholder="Comparison"
+            <EditableText value={slide.title} onChange={(v) => edit("title", v)} onFocusChange={handleFocusChange} placeholder="Comparison"
               style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${24 * sc}px`, textAlign: "center" }} />
           ) : (
             <div style={{ fontSize: `${28 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${24 * sc}px`, textAlign: "center" }}>{slide.title}</div>
@@ -469,9 +625,9 @@ function SlideCanvas({
       <div style={{ flex: 1, padding: `${48 * sc}px ${40 * sc}px`, display: "flex", flexDirection: "column", justifyContent: "center" }}>
         {editable ? (
           <>
-            <EditableText value={slide.title} onChange={(v) => edit("title", v)} placeholder="Title"
+            <EditableText value={slide.title} onChange={(v) => edit("title", v)} onFocusChange={handleFocusChange} placeholder="Title"
               style={{ fontSize: `${26 * s * sc}px`, fontFamily: headerFont, fontWeight: 700, marginBottom: `${20 * sc}px` }} />
-            <EditableText value={slide.body || ""} onChange={(v) => edit("body", v)} placeholder="Content..." multiline
+            <EditableText onFocusChange={handleFocusChange} value={slide.body || ""} onChange={(v) => edit("body", v)} placeholder="Content..." multiline
               style={{ fontSize: `${14 * s * sc}px`, lineHeight: 1.7, color: fgSub }} />
           </>
         ) : (
@@ -540,6 +696,7 @@ export default function DeckEditorPage() {
   const [showThemePanel, setShowThemePanel] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
   const [showLayoutPicker, setShowLayoutPicker] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
 
   // Chat
   const [chatInput, setChatInput] = useState("");
@@ -817,6 +974,9 @@ export default function DeckEditorPage() {
 
         {/* Center: Slide Canvas */}
         <div className="flex-1 flex flex-col overflow-hidden bg-[#2a2a3e]">
+          {/* Formatting toolbar — shows when editing text */}
+          <FormattingToolbar visible={isEditing} />
+
           <div className="flex-1 flex items-center justify-center overflow-auto p-8">
             {currentSlide ? (
               <div className="shadow-2xl rounded-lg overflow-hidden" style={{ width: 960, flexShrink: 0 }}>
@@ -827,6 +987,7 @@ export default function DeckEditorPage() {
                   fonts={fonts}
                   dark={isDark(colors, activeSlide, slides.length)}
                   interactive
+                  onEditingChange={setIsEditing}
                 />
               </div>
             ) : (
