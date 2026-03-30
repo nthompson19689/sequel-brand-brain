@@ -108,7 +108,7 @@ export async function POST(request: NextRequest) {
     const claude = getClaudeClient();
 
     const response = await claude.messages.create({
-      model: resolveModel("claude-sonnet-4-6"),
+      model: resolveModel("claude-opus-4-6"), // Opus for high-stakes presentation output
       max_tokens: MAX_TOKENS,
       system: systemBlocks,
       messages: [{ role: "user", content: enrichedPrompt }],

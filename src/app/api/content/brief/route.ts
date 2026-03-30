@@ -24,35 +24,14 @@ export async function POST(request: Request) {
   const supabase = getSupabaseServerClient();
   const claude = getClaudeClient();
 
-  // Get ALL existing Sequel articles for internal link reference (we want 5-10 in the brief)
-  let existingArticles: Array<{ title: string; slug: string; primary_keyword: string; url: string }> = [];
-  if (supabase) {
-    const { data } = await supabase
-      .from("articles")
-      .select("title, slug, primary_keyword, url")
-      .not("url", "is", null)
-      .order("title")
-      .limit(300);
-    existingArticles = ((data || []) as typeof existingArticles).filter(a => a.url && a.url.includes("sequel.io"));
-  }
-
-  const linkRef = existingArticles.length > 0
-    ? "\n\n=== INTERNAL LINK REFERENCE — SEQUEL BLOG POSTS (SELECT 5-10 FOR THIS ARTICLE) ===\n" +
-      "You MUST select 5-10 links from this list to include in the brief. Pick the most topically relevant ones.\n" +
-      "Spread links naturally throughout different sections — do NOT cluster them.\n" +
-      "Use the EXACT URLs listed below. NEVER invent a URL. ONLY use sequel.io URLs from this list.\n" +
-      `Total articles available: ${existingArticles.length}\n\n` +
-      existingArticles.map((a, i) => {
-        return `${i + 1}. "${a.title}" → ${a.url} (keyword: ${a.primary_keyword || "n/a"})`;
-      }).join("\n")
-    : "";
-
   // Block 1: brand docs (CACHED, shared with chat/agents)
   // Block 2: writing standards (CACHED, shared with write/edit)
+  // Block 2b: article link reference (CACHED, shared with write route)
   // Block 3: brief-specific prompt (NOT cached)
   const { blocks: systemBlocks } = await buildSystemBlocks({
     includeWritingStandards: true,
-    additionalContext: BRIEF_SYSTEM + linkRef,
+    includeArticleReference: true,
+    additionalContext: BRIEF_SYSTEM + "\n\nYou MUST select 5-10 links from the INTERNAL LINK REFERENCE to include in the brief. Pick the most topically relevant ones. Spread links naturally throughout different sections — do NOT cluster them.",
   });
 
   const encoder = new TextEncoder();
@@ -82,10 +61,9 @@ export async function POST(request: Request) {
 
         send({ type: "status", step: "gaps", message: "Analyzing content gaps..." });
 
-        let gapContext = "";
-        if (existingArticles.length > 0) {
-          gapContext = `\n\nOur existing Sequel blog content (${existingArticles.length} articles):\n${existingArticles.slice(0, 50).map((a) => `- "${a.title}" → ${a.url}`).join("\n")}`;
-        }
+        // Article list is already in the system blocks (Block 2b, cached).
+        // Just remind the model to use it for gap analysis.
+        const gapContext = "\n\nRefer to the INTERNAL LINK REFERENCE in your system context for our existing blog content. Identify gaps relative to what competitors cover.";
 
         send({ type: "status", step: "brief", message: "Generating detailed brief..." });
 
@@ -134,12 +112,12 @@ Follow this exact format:
 - [At least 3 stats]
 
 ### Internal Links (Required: 5-10 links from the reference table above)
-There are ${existingArticles.length} Sequel blog posts available. You MUST select 5-10 of the most topically relevant ones. For EACH link:
+Refer to the INTERNAL LINK REFERENCE in your system context. You MUST select 5-10 of the most topically relevant ones. For EACH link:
 - Provide the EXACT URL from the reference table (sequel.io URLs only)
 - Specify which H2 section it belongs in
 - Suggest natural anchor text (2-4 words, not the full title)
 - Each link should be in a DIFFERENT section — spread them throughout
-- NEVER use placeholder text like "[Will be added later]" — the library has ${existingArticles.length} articles to choose from right now
+- NEVER use placeholder text like "[Will be added later]" — select from the articles listed in your system context
 
 ### AEO Optimization Notes
 [Answer Engine Optimization suggestions]

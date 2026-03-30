@@ -191,100 +191,75 @@ export async function POST(request: Request) {
         });
 
         // =====================
-        // CALL 1: Violation review
+        // CALL 1: Combined review + annotated version (merged from previous 2-call approach)
         // =====================
         send({
           type: "status",
           step: "call1",
-          message: "Call 1/3 — Reviewing violations...",
+          message: "Call 1/2 — Reviewing and annotating...",
         });
 
         const call1Blocks = [
           ...baseBlocks,
           {
             type: "text" as const,
-            text: `${EDITOR_IDENTITY}\n\n${KILL_LIST_FOR_EDITOR}\n\nYou are performing Call 1 of 3: the violation scan. Your job is to identify every issue. You will NOT fix anything yet.`,
+            text: `${EDITOR_IDENTITY}\n\n${KILL_LIST_FOR_EDITOR}\n\nYou are performing Call 1 of 2: the combined review and annotation. You will identify every issue AND produce the annotated article in a single pass. This saves tokens while maintaining quality.`,
           },
         ];
 
         const call1Response = await claude.messages.create({
           model: resolveModel("claude-sonnet-4-6"),
-          max_tokens: MAX_TOKENS,
+          max_tokens: MAX_TOKENS * 2,
           system: call1Blocks,
           messages: [
             {
               role: "user",
-              content: `Review this article for violations. Be thorough but REMEMBER: conversational asides, humor, short punchy sentences, and parenthetical observations are FEATURES of this voice, not violations.
+              content: `Review this article and produce an annotated version with inline fix markers. Do BOTH tasks in one pass.
+
+PART 1: ESSAY DEPTH AUDIT (output first, before the annotated article)
+1. Count sections with 400+ words of sustained prose. Need at least 2. Flag if fewer.
+2. Check prose-to-list ratio. Target: 60% prose / 25% lists / 15% short. Flag if lists dominate.
+3. Check for "H2 → intro → bullet list → done" sections. Flag each one.
+4. Check connective tissue between sections. Flag disconnected sections.
+5. Check paragraph length variety. Flag if every paragraph is 1-2 sentences.
+6. Check section length variety. Flag if all sections are similar length.
+
+STRUCTURAL REPETITION AUDIT:
+- Map each H2's opening/closing pattern. Flag 3+ consecutive same patterns.
+- Flag "Most companies/teams..." used 3+ times, "That's [noun]." used 2+ times.
+- Flag fewer than 3 list blocks or fewer than 2 sections with conversational asides.
+
+ANTI-PATTERN CHECK (flag as HIGH severity):
+- Repetitive H2 structure, monotone paragraphs, setup sentences, listicle padding
+- Non-blog internal links, insufficient internal links (<5), first-person singular
+- "It's not about X, it's about Y" constructions, question stacks
+- Word count significantly over target (15%+)
 
 PRE-DETECTED ISSUES (from regex scan):
 ${violationSummary}
 
 ${linkAnalysis}
 
-For each violation found, report:
-LOCATION: [exact text from the article]
-ISSUE: [what rule it breaks]
-SEVERITY: High / Medium / Low
-SUGGESTED FIX: [specific replacement text — must match Nathan's voice]
+PART 2: ANNOTATED ARTICLE
+After the audit summary, reproduce the FULL article with inline markers:
+[EDIT (Severity): 'original text' -> 'replacement text' | Rule: rule name]
 
-ALSO CHECK:
-- Consecutive paragraphs starting with the same word
-- Vague claims without specifics (suggest [INSERT SPECIFIC DATA])
-- Missing H3 in H2 sections over 300 words
-- Sections that are data-heavy and could be tightened
-- NEVER flag conversational asides, humor, or personality as violations
+CRITICAL RULES:
+1. PRESERVE ALL LINKS — both internal (sequel.io) AND external. NEVER remove any link.
+2. EXTERNAL LINKS ARE SACRED. Every citation URL must survive editing.
+3. Mark duplicate internal URLs for removal (keep the most natural one).
+4. PRESERVE conversational asides, humor, self-deprecation, parenthetical observations.
+5. Only fix actual violations: kill list, em dashes, passive voice, vague claims.
+6. Maintain Sequel team voice (we/our). Tighten data, loosen voice.
 
-ESSAY DEPTH AUDIT (add this FIRST, before anything else):
-1. Count sections with 400+ words of sustained prose. Need at least 2. Flag if fewer.
-2. Check prose-to-list ratio. Target: 60% prose / 25% lists / 15% short sections. Flag if lists dominate.
-3. Check for "H2 → intro sentence → bullet list → done" sections. Flag each one as needing prose development.
-4. Check connective tissue between sections. Do transitional phrases connect each section to the next? Flag disconnected sections.
-5. Check paragraph length variety. Are there paragraphs of 3-5 sentences developing arguments? If every paragraph is 1-2 sentences, flag it.
-6. Check section length variety. Are sections dramatically different lengths? Flag if all sections are similar length.
-7. Does the article feel like one continuous argument or 8 separate mini-articles? Flag if disconnected.
+End with:
+## LINK AUDIT
+- Internal links preserved: [count]
+- External links preserved: [count]
+- Links removed (duplicates only): [count]
+- Internal link count: [total] ${totalLinks < 5 ? "(WARNING: below minimum of 5)" : "(OK)"}
 
-BEFORE/AFTER ANTI-PATTERN CHECK (flag each as HIGH severity):
-8. REPETITIVE H2 STRUCTURE: Map each H2's skeleton (e.g. "claim → stat → takeaway"). If any two consecutive sections share the same skeleton, flag it. Each section must earn its own shape.
-9. REPETITIVE SENTENCE CONSTRUCTION: Any paragraph where 4+ sentences are the same length and shape (declarative, 10-15 words each). Flag: "MONOTONE PARAGRAPH — vary sentence length."
-10. SETUP SENTENCES: Sentences that announce what the next sentence will say (e.g. "This makes X perfect for Y"). Flag and suggest cutting.
-11. LISTICLE PADDING: Simple yes/no questions answered with numbered steps instead of 2-3 prose sentences. Flag: "LISTICLE PADDING — answer in prose."
-12. NON-BLOG INTERNAL LINKS: Any internal link that goes to homepage, product page, pricing, or any URL not matching /post/. Flag as HIGH: "WRONG LINK TARGET — only /post/ URLs allowed."
-13. INSUFFICIENT INTERNAL LINKS: Fewer than 5 internal links to /post/ URLs. Flag: "LINK GAP — need 5-7 internal blog post links."
-14. "IT'S NOT ABOUT X, IT'S ABOUT Y": Any instance of this reframing construction. Flag: "AI TELL — state the point directly instead of reframing."
-15. FIRST-PERSON SINGULAR: Any use of "I," "I've," "I think," "my" — articles should use "we," "our team," "we've seen." Flag: "VOICE — use third-person plural (we/our), not first person singular."
-16. PARALLEL DECLARATIVES WITHOUT TRANSITION: Back-to-back contrasting statements without "but," "while," or "and yet." Flag: "MISSING TRANSITION — add connective word and explain why the contrast matters."
-17. HYPOTHETICAL QUESTION STACKS: Three or more rhetorical questions in a row inside a paragraph. Flag: "QUESTION STACK — pick one example or convert to bullets."
-18. WORD COUNT: If the article significantly exceeds the target word count (more than 15% over), flag: "OVER TARGET — article is [N] words, target was [M]. Trim to within 10%."
-
-STRUCTURAL REPETITION AUDIT:
-For each H2 section, note its:
-- Opening pattern: bold declarative / data-stat / story-scenario / question / conversational
-- Closing pattern: punchy one-liner / data point / question / call-to-action / story ending / conversational
-Flag if:
-- 3+ consecutive sections share the same opening pattern
-- 3+ consecutive sections share the same closing pattern
-- More than 2 sections open with "Most companies..." / "Most teams..." / "Most [noun]..." pattern
-- More than 1 section ends with a rhetorical question (max 1 per ENTIRE article)
-- More than 1 section ends with "That's [noun]." pattern
-- Fewer than 3 bullet or numbered list blocks in the full article (B2B readers scan — need at least 30% list content)
-- Fewer than 2 sections contain conversational asides or humor (voice gap)
-For each flagged case, suggest which section to restructure and what alternative format to use.
-
-LIST QUALITY CHECK:
-- Count total bullet and numbered lists in the article. Need at least 3 list blocks.
-- Check that list items are substantive (1-2 sentences each), not 3-word fragments.
-  BAD: "Real-time analytics"
-  GOOD: "Real-time analytics that show which attendees clicked your pricing CTA during the demo section, so sales can call them before the event ends"
-- Flag any list where most items are under 10 words as "FRAGMENT LIST — add detail to each bullet"
-
-INTERNAL LINK QUALITY AUDIT:
-For each internal link in the article, check:
-- Is the link woven into a natural sentence? Or does it stand apart as a reference?
-- Is the anchor text 2-4 natural words? Or is it a full clause/sentence?
-- Does the sentence read naturally without the link? (If removing the link breaks the sentence, the link IS the sentence and that's bad.)
-Flag any links that read as SEO references rather than natural text. Suggest rewrites that weave the link into the thought.
-
-Article:
+Article to review and annotate:
 ${draft}`,
             },
           ],
@@ -296,86 +271,28 @@ ${draft}`,
         for (const block of call1Response.content) {
           if (block.type === "text") call1Text += block.text;
         }
-        send({ type: "call1_complete", notes: call1Text });
+
+        // Extract just the violation notes for storage (everything before the annotated article)
+        const annotationStart = call1Text.indexOf("[EDIT");
+        const reviewNotes = annotationStart > 0 ? call1Text.slice(0, annotationStart).trim() : call1Text.slice(0, 2000);
+        send({ type: "call1_complete", notes: reviewNotes });
+        // The full call1Text (review + annotated article) goes to Call 2
+        const call2Text = call1Text;
 
         // =====================
-        // CALL 2: Annotated version
+        // CALL 2: Clean final version (streamed, uses Opus for voice preservation)
         // =====================
         send({
           type: "status",
           step: "call2",
-          message: "Call 2/3 — Producing annotated version...",
-        });
-
-        const call2Blocks = [
-          ...baseBlocks,
-          {
-            type: "text" as const,
-            text: `${EDITOR_IDENTITY}\n\nYou are performing Call 2 of 3: the annotated edit. Reproduce the FULL article with inline fix markers. PRESERVE ALL LINKS — both internal (sequel.io) AND external (citations, sources, stats). NEVER remove any link. If a link's anchor text needs improvement, change only the anchor text, keep the URL.`,
-          },
-        ];
-
-        const call2Response = await claude.messages.create({
-          model: resolveModel("claude-sonnet-4-6"),
-          max_tokens: MAX_TOKENS * 2,
-          system: call2Blocks,
-          messages: [
-            {
-              role: "user",
-              content: `Reproduce the FULL article with inline markers for every fix. Use this format:
-[EDIT (Severity): 'original text' -> 'replacement text' | Rule: rule name]
-
-CRITICAL RULES FOR THIS PASS:
-1. PRESERVE ALL LINKS — both internal (sequel.io) AND external (citations, sources, stats). NEVER remove any [text](url) link. If anchor text needs improvement, change only the anchor text, keep the URL intact.
-2. EXTERNAL LINKS ARE SACRED. Every external citation link must survive editing. If the writer cited a source with a URL, that URL must appear in the final output. Removing external links destroys credibility.
-3. If an internal URL appears more than once, mark duplicate occurrences for removal (keep the first/most natural one). External links may appear only once each.
-4. PRESERVE all conversational asides, humor, self-deprecation, parenthetical observations. These are voice features.
-5. Only fix actual violations: kill list phrases, em dashes, passive voice, vague claims, "it's not about X it's about Y" constructions.
-6. When fixing, maintain the Sequel team's conversational voice (we/our). Replacements should sound like practitioners, not corporate copy.
-7. Tighten data sections (consolidate stats, cut "According to..." preambles). Leave voice sections loose.
-
-After the annotated article, add:
-## SECOND PASS CATCHES
-[Any additional issues found during annotation]
-
-## LINK AUDIT
-- Internal links preserved: [count]
-- External links preserved: [count]
-- Links removed (duplicates only): [count and which ones]
-- Internal link count: [total unique] ${totalLinks < 5 ? "(WARNING: below minimum of 5)" : "(OK)"}
-- External link count: [total] (ZERO external links should be removed. All citation URLs must survive.)
-
-Violation Review from Call 1:
-${call1Text}
-
-Article to annotate:
-${draft}`,
-            },
-          ],
-        });
-
-        logCachePerformance("/api/content/edit[call2]", call2Response.usage);
-
-        let call2Text = "";
-        for (const block of call2Response.content) {
-          if (block.type === "text") call2Text += block.text;
-        }
-        send({ type: "call2_complete" });
-
-        // =====================
-        // CALL 3: Clean final version (streamed)
-        // =====================
-        send({
-          type: "status",
-          step: "call3",
-          message: "Call 3/3 — Producing clean final version...",
+          message: "Call 2/2 — Producing clean final version...",
         });
 
         const call3Blocks = [
           ...baseBlocks,
           {
             type: "text" as const,
-            text: `${EDITOR_IDENTITY}\n\nYou are performing Call 3 of 3: the clean final version. Apply ALL edits from the annotated version. Remove all annotation markup. Output ONLY the clean article.
+            text: `${EDITOR_IDENTITY}\n\nYou are performing Call 2 of 2: the clean final version. Apply ALL edits from the annotated version. Remove all annotation markup. Output ONLY the clean article.
 
 FINAL PASS RULES:
 1. ZERO kill list phrases remaining.
@@ -428,7 +345,7 @@ Output: the final clean article ONLY. No annotations, no comments, no meta-comme
         }
 
         const finalMsg = await stream.finalMessage();
-        logCachePerformance("/api/content/edit[call3]", finalMsg.usage);
+        logCachePerformance("/api/content/edit[call2-final]", finalMsg.usage);
 
         // Run quality gates on the final output
         send({
@@ -458,7 +375,7 @@ Output: the final clean article ONLY. No annotations, no comments, no meta-comme
             .update({
               edited_draft: cleanDraft,
               editor_notes: {
-                call1: call1Text,
+                call1: reviewNotes,
                 violations,
                 gates,
                 gatesPassed,
@@ -474,7 +391,7 @@ Output: the final clean article ONLY. No annotations, no comments, no meta-comme
         send({
           type: "complete",
           editedDraft: cleanDraft,
-          editorNotes: call1Text,
+          editorNotes: reviewNotes,
           gates,
           gatesPassed,
           gatesTotal: gates.length,

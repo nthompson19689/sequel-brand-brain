@@ -82,6 +82,10 @@ const WEB_SEARCH_TOOL = {
 
 const SONNET = resolveModel("claude-sonnet-4-6");
 
+/** Lightweight brand positioning for competitor scans — keeps Claude aware of
+ *  Sequel's differentiators without loading full brand docs (~200 tokens). */
+const COMPETITOR_SCAN_SYSTEM = `You are analyzing competitors for Sequel.io, a website-native webinar and virtual event platform. Sequel's key differentiators: (1) webinars run ON the customer's website, not a separate platform, (2) unified customer journey data combining webinar engagement + website behavior, (3) AI that acts on intent in real-time while engagement is still live, (4) revenue-grade attribution proving how webinars drive pipeline and closed deals. When analyzing competitors, note anything that directly competes with or validates these differentiators. Return actionable competitive intelligence.`;
+
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -345,6 +349,7 @@ async function scanPricing(
       const response = await claude.messages.create({
         model: SONNET,
         max_tokens: MAX_TOKENS,
+        system: [{ type: "text" as const, text: COMPETITOR_SCAN_SYSTEM }],
         messages: [
           {
             role: "user",
@@ -406,6 +411,7 @@ async function scanHiring(
   const response = await claude.messages.create({
     model: SONNET,
     max_tokens: MAX_TOKENS,
+    system: [{ type: "text" as const, text: COMPETITOR_SCAN_SYSTEM }],
     tools: [WEB_SEARCH_TOOL],
     messages: [
       {
@@ -485,6 +491,7 @@ async function scanG2Reviews(
   const response = await claude.messages.create({
     model: SONNET,
     max_tokens: MAX_TOKENS,
+    system: [{ type: "text" as const, text: COMPETITOR_SCAN_SYSTEM }],
     tools: [WEB_SEARCH_TOOL],
     messages: [
       {
@@ -588,6 +595,7 @@ async function scanNews(
   const response = await claude.messages.create({
     model: SONNET,
     max_tokens: MAX_TOKENS,
+    system: [{ type: "text" as const, text: COMPETITOR_SCAN_SYSTEM }],
     tools: [WEB_SEARCH_TOOL],
     messages: [
       {
@@ -674,6 +682,7 @@ async function scanProductUpdates(
   const response = await claude.messages.create({
     model: SONNET,
     max_tokens: MAX_TOKENS,
+    system: [{ type: "text" as const, text: COMPETITOR_SCAN_SYSTEM }],
     tools: [WEB_SEARCH_TOOL],
     messages: [
       {
@@ -751,6 +760,7 @@ async function scanEvents(
   const response = await claude.messages.create({
     model: SONNET,
     max_tokens: MAX_TOKENS,
+    system: [{ type: "text" as const, text: COMPETITOR_SCAN_SYSTEM }],
     tools: [WEB_SEARCH_TOOL],
     messages: [
       {

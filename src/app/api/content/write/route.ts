@@ -223,47 +223,14 @@ export async function POST(request: Request) {
   const supabase = getSupabaseServerClient();
   const claude = getClaudeClient();
 
-  // Build internal link reference from articles table (Sequel's blog posts)
-  // This is the ONLY source for internal links — no hallucinated URLs
-  let linkRef = "";
-  if (supabase) {
-    const { data } = await supabase
-      .from("articles")
-      .select("title, slug, url, primary_keyword")
-      .not("url", "is", null)
-      .order("title")
-      .limit(300);
-
-    if (data && data.length > 0) {
-      linkRef =
-        "\n\n=== INTERNAL LINK REFERENCE TABLE (BLOG POSTS ONLY) ===\n" +
-        "CRITICAL: You MUST include 5-7 internal links from this table. ONLY use URLs from this table.\n" +
-        "NEVER link to the homepage, product pages, pricing, or any URL not in this list.\n" +
-        "Every link must be to a /post/ URL from this table.\n\n" +
-        data
-          .filter((a: Record<string, string>) => a.url && a.url.includes("sequel.io"))
-          .map(
-            (a: Record<string, string>) => {
-              return `  "${a.title}" -> ${a.url} (keyword: ${a.primary_keyword || a.title})`;
-            }
-          )
-          .join("\n") +
-        "\n\nRULES:\n" +
-        "- Use 5-7 links from this table, spread across different sections\n" +
-        "- Each URL linked ONLY ONCE\n" +
-        "- 2-4 word natural anchor text woven into sentences\n" +
-        "- Choose articles that are TOPICALLY RELEVANT to the article you're writing\n" +
-        "- The reader should not notice the link unless they hover over it\n" +
-        `- Total articles available: ${data.length}. You have plenty to choose from. Pick the most relevant ones.`;
-    }
-  }
-
   // Block 1: brand docs (CACHED, same as chat/agents/brief)
   // Block 2: writing standards + Nathan style guide (CACHED, same as brief/edit)
-  // Block 3: writer prompt + link reference (NOT cached, unique per call)
+  // Block 2b: article link reference (CACHED, same as brief route — 45K tokens saved per call)
+  // Block 3: writer prompt (NOT cached, unique per call)
   const { blocks: systemBlocks } = await buildSystemBlocks({
     includeWritingStandards: true,
-    additionalContext: WRITER_SYSTEM + linkRef,
+    includeArticleReference: true,
+    additionalContext: WRITER_SYSTEM + "\n\nCRITICAL: Include 5-7 internal links from the INTERNAL LINK REFERENCE. ONLY use URLs from that list. Each URL linked ONLY ONCE. 2-4 word natural anchor text woven into sentences. Choose topically relevant articles. The reader should not notice the link unless they hover.",
   });
 
   const encoder = new TextEncoder();
@@ -276,9 +243,9 @@ export async function POST(request: Request) {
         send({ type: "status", step: "writing", message: "Writing draft with Opus..." });
 
         // Token budget: ~1.3 tokens per word + headroom for markdown formatting,
-        // links, and structural elements. Previous 2x multiplier was too aggressive
-        // and caused truncation on articles over ~2000 words.
-        const tokenCap = Math.max(8192, Math.round((wordCount || 1500) * 3));
+        // links, headings, and structural elements. The floor of 6144 prevents
+        // truncation on shorter articles; the 2x multiplier handles longer ones.
+        const tokenCap = Math.max(6144, Math.round((wordCount || 1500) * 2));
         const stream = await claude.messages.stream({
           model: resolveModel("claude-opus-4-6"),
           max_tokens: tokenCap,

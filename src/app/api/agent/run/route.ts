@@ -24,6 +24,18 @@ interface RunRequest {
  * This ensures every step has the complete accumulated context,
  * even if the step prompt doesn't explicitly reference {{step_N}}.
  */
+/** Max characters for previous step context before summarization kicks in */
+const MAX_CONTEXT_CHARS = 8000;
+
+/**
+ * Summarize a step output to its first 500 chars + a truncation notice.
+ * Used for older steps when context grows too large.
+ */
+function summarizeOutput(text: string, maxChars = 500): string {
+  if (text.length <= maxChars) return text;
+  return text.slice(0, maxChars) + `\n... [truncated — ${text.length} chars total. Key details above.]`;
+}
+
 function buildStepMessage(
   step: WorkflowStep,
   stepIndex: number,
@@ -40,13 +52,24 @@ function buildStepMessage(
     .sort((a, b) => a - b);
 
   if (prevStepNums.length > 0) {
+    // Calculate total context size
+    const totalContextSize = prevStepNums.reduce((sum, n) => sum + (stepOutputs[String(n)]?.length || 0), 0);
+    const shouldSummarize = totalContextSize > MAX_CONTEXT_CHARS && prevStepNums.length > 3;
+
     parts.push("=== CONTEXT FROM PREVIOUS STEPS ===\n");
     for (const n of prevStepNums) {
       const prevStep = allSteps[n - 1];
       const label = prevStep?.name || `Step ${n}`;
       const type = prevStep?.type || "unknown";
       parts.push(`--- STEP ${n} OUTPUT (${label} — ${type}) ---`);
-      parts.push(stepOutputs[String(n)]);
+
+      // Keep recent steps (last 2) at full length, summarize older ones
+      const isRecent = n >= prevStepNums[prevStepNums.length - 1] - 1;
+      if (shouldSummarize && !isRecent) {
+        parts.push(summarizeOutput(stepOutputs[String(n)]));
+      } else {
+        parts.push(stepOutputs[String(n)]);
+      }
       parts.push("");
     }
     parts.push("=== END OF PREVIOUS CONTEXT ===\n");

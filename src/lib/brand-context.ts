@@ -19,11 +19,16 @@ export interface BrandDoc {
   content: string;
 }
 
-// ── In-memory cache with 5-minute TTL ──────────────
+// ── In-memory cache with 30-minute TTL ──────────────
 let cachedBrandText: string | null = null;
 let cachedDocs: BrandDoc[] = [];
 let cacheTimestamp = 0;
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL = 30 * 60 * 1000; // 30 minutes (brand docs rarely change)
+
+// ── Cached article list (for internal link reference) ──
+let cachedArticleList: string | null = null;
+let articleCacheTimestamp = 0;
+const ARTICLE_CACHE_TTL = 15 * 60 * 1000; // 15 minutes
 
 /** Canonical doc type ordering — NEVER change this order or cache breaks */
 const DOC_TYPE_ORDER = [
@@ -105,6 +110,65 @@ async function loadAndCacheBrandDocs(): Promise<{ text: string; docs: BrandDoc[]
 }
 
 /**
+ * Load and cache the internal article list for link references.
+ * Used by brief/write routes — cached to avoid 300-row DB query + 45K tokens per call.
+ * Returns the formatted link reference text ready for a system block.
+ */
+export async function getArticleLinkReference(): Promise<string> {
+  const now = Date.now();
+  if (cachedArticleList && now - articleCacheTimestamp < ARTICLE_CACHE_TTL) {
+    return cachedArticleList;
+  }
+
+  const supabase = getSupabaseServerClient();
+  if (!supabase) {
+    cachedArticleList = "";
+    articleCacheTimestamp = now;
+    return "";
+  }
+
+  const { data, error } = await supabase
+    .from("articles")
+    .select("title, slug, primary_keyword, url")
+    .not("url", "is", null)
+    .order("title")
+    .limit(300);
+
+  if (error || !data || data.length === 0) {
+    cachedArticleList = "";
+    articleCacheTimestamp = now;
+    return "";
+  }
+
+  const articles = (data as Array<{ title: string; slug: string; primary_keyword: string; url: string }>)
+    .filter(a => a.url && a.url.includes("sequel.io"));
+
+  if (articles.length === 0) {
+    cachedArticleList = "";
+    articleCacheTimestamp = now;
+    return "";
+  }
+
+  const text =
+    "\n=== INTERNAL LINK REFERENCE — SEQUEL BLOG POSTS ===\n" +
+    "Use ONLY URLs from this list for internal links. NEVER invent a URL.\n" +
+    `Total articles available: ${articles.length}\n\n` +
+    articles.map((a, i) => `${i + 1}. "${a.title}" → ${a.url} (keyword: ${a.primary_keyword || "n/a"})`).join("\n");
+
+  cachedArticleList = text;
+  articleCacheTimestamp = now;
+  return text;
+}
+
+/**
+ * Clear the article list cache (e.g., after new articles are imported).
+ */
+export function clearArticleCache() {
+  cachedArticleList = null;
+  articleCacheTimestamp = 0;
+}
+
+/**
  * The system block type that Anthropic API expects for prompt caching.
  */
 interface SystemBlock {
@@ -117,11 +181,13 @@ interface SystemBlock {
  * Build the system blocks for any Claude call.
  *
  * @param options.includeWritingStandards — true for content pipeline (brief/write/edit)
+ * @param options.includeArticleReference — true for brief/write (internal link reference, CACHED)
  * @param options.additionalContext — step-specific text (agent prompt, chat system, etc.)
  * @returns Array of system blocks ready for the Claude API `system` parameter
  */
 export async function buildSystemBlocks(options: {
   includeWritingStandards?: boolean;
+  includeArticleReference?: boolean;
   additionalContext?: string;
 } = {}): Promise<{ blocks: SystemBlock[]; docs: BrandDoc[] }> {
   const { text: brandText, docs } = await loadAndCacheBrandDocs();
@@ -144,6 +210,18 @@ export async function buildSystemBlocks(options: {
       text: WRITING_STANDARDS,
       cache_control: { type: "ephemeral" },
     });
+  }
+
+  // Block 2b: Article link reference (CACHED — shared across brief/write)
+  if (options.includeArticleReference) {
+    const articleRef = await getArticleLinkReference();
+    if (articleRef) {
+      blocks.push({
+        type: "text",
+        text: articleRef,
+        cache_control: { type: "ephemeral" },
+      });
+    }
   }
 
   // Block 3: Additional context (NOT cached — unique per call)
@@ -201,4 +279,5 @@ export function clearBrandCache() {
   cachedBrandText = null;
   cachedDocs = [];
   cacheTimestamp = 0;
+  clearArticleCache();
 }
