@@ -1,4 +1,3 @@
-import { getClaudeClient, resolveModel, MAX_TOKENS } from "@/lib/claude";
 import { getSupabaseServerClient } from "@/lib/supabase";
 import { NextRequest } from "next/server";
 

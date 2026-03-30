@@ -25,6 +25,30 @@ interface InviteRow {
   invited_by: string;
 }
 
+interface TicketRow {
+  id: string;
+  type: "workflow_request" | "bug_report";
+  status: string;
+  goal?: string;
+  process?: string;
+  due_date?: string;
+  title?: string;
+  description?: string;
+  page_feature?: string;
+  severity?: string;
+  created_at: string;
+  updated_at: string;
+  submitter?: { id: string; full_name: string; avatar_url?: string } | null;
+  assignee?: { id: string; full_name: string; avatar_url?: string } | null;
+}
+
+interface TicketComment {
+  id: string;
+  body: string;
+  created_at: string;
+  author: { id: string; full_name: string; avatar_url?: string } | null;
+}
+
 function getInitials(name: string | null, email?: string): string {
   if (name) {
     return name
@@ -48,9 +72,15 @@ function formatDate(dateStr: string | null): string {
 
 export default function AdminPage() {
   const { profile, loading: authLoading } = useAuth();
-  const [tab, setTab] = useState<"users" | "invites">("users");
+  const [tab, setTab] = useState<"users" | "invites" | "tickets">("users");
   const [users, setUsers] = useState<UserRow[]>([]);
   const [invites, setInvites] = useState<InviteRow[]>([]);
+  // Tickets state
+  const [tickets, setTickets] = useState<TicketRow[]>([]);
+  const [ticketFilter, setTicketFilter] = useState<string>("all");
+  const [expandedTicket, setExpandedTicket] = useState<string | null>(null);
+  const [ticketComments, setTicketComments] = useState<Record<string, TicketComment[]>>({});
+  const [newCommentText, setNewCommentText] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -88,11 +118,56 @@ export default function AdminPage() {
     }
   }, []);
 
+  const fetchTickets = useCallback(async () => {
+    const res = await fetch("/api/tickets?scope=all");
+    if (res.ok) {
+      const data = await res.json();
+      setTickets(data.tickets || []);
+    }
+  }, []);
+
+  const fetchTicketComments = useCallback(async (ticketId: string) => {
+    const res = await fetch(`/api/tickets/comments?ticket_id=${ticketId}`);
+    if (res.ok) {
+      const data = await res.json();
+      setTicketComments((prev) => ({ ...prev, [ticketId]: data.comments || [] }));
+    }
+  }, []);
+
+  const updateTicketStatus = useCallback(async (id: string, status: string) => {
+    setActionLoading(id);
+    const res = await fetch("/api/tickets", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, status }),
+    });
+    if (res.ok) {
+      fetchTickets();
+      setSuccess("Ticket status updated");
+      setTimeout(() => setSuccess(null), 3000);
+    }
+    setActionLoading(null);
+  }, [fetchTickets]);
+
+  const postTicketComment = useCallback(async (ticketId: string) => {
+    const body = newCommentText[ticketId]?.trim();
+    if (!body) return;
+    const res = await fetch("/api/tickets/comments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ticket_id: ticketId, body }),
+    });
+    if (res.ok) {
+      setNewCommentText((prev) => ({ ...prev, [ticketId]: "" }));
+      fetchTicketComments(ticketId);
+    }
+  }, [newCommentText, fetchTicketComments]);
+
   useEffect(() => {
     if (!profile?.is_admin) return;
     setLoading(true);
-    Promise.all([fetchUsers(), fetchInvites()]).finally(() => setLoading(false));
-  }, [profile, fetchUsers, fetchInvites]);
+    Promise.all([fetchUsers(), fetchInvites(), fetchTickets()]).finally(() => setLoading(false));
+  }, [profile, fetchUsers, fetchInvites, fetchTickets]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -249,6 +324,16 @@ export default function AdminPage() {
         >
           Pending Invites ({invites.length})
         </button>
+        <button
+          onClick={() => setTab("tickets")}
+          className={`px-5 py-2 rounded-lg text-sm font-medium transition-colors ${
+            tab === "tickets"
+              ? "bg-[#7C3AED] text-white"
+              : "text-[#A09CB0] hover:text-white hover:bg-[#2A2040]"
+          }`}
+        >
+          Tickets ({tickets.length})
+        </button>
       </div>
 
       {/* Content */}
@@ -393,7 +478,7 @@ export default function AdminPage() {
             </tbody>
           </table>
         </div>
-      ) : (
+      ) : tab === "invites" ? (
         /* Invites tab */
         <div className="bg-[#1A1228] rounded-2xl border border-[#2A2040] overflow-hidden">
           <table className="w-full">
@@ -428,7 +513,205 @@ export default function AdminPage() {
             </tbody>
           </table>
         </div>
-      )}
+      ) : tab === "tickets" ? (
+        /* ─── Tickets Tab ───────────────────────────────────────────────── */
+        <div>
+          {/* Filter bar */}
+          <div className="flex gap-2 mb-4 flex-wrap">
+            {["all", "workflow_request", "bug_report", "new", "in_progress", "investigating", "completed", "fixed"].map((f) => (
+              <button
+                key={f}
+                onClick={() => setTicketFilter(f)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  ticketFilter === f
+                    ? "bg-[#7C3AED] text-white"
+                    : "bg-[#1A1228] text-[#A09CB0] border border-[#2A2040] hover:border-[#3A3050]"
+                }`}
+              >
+                {f === "all" ? "All" : f.replace(/_/g, " ")}
+              </button>
+            ))}
+          </div>
+
+          <div className="space-y-3">
+            {tickets
+              .filter((t) => {
+                if (ticketFilter === "all") return true;
+                if (ticketFilter === "workflow_request" || ticketFilter === "bug_report") return t.type === ticketFilter;
+                return t.status === ticketFilter;
+              })
+              .map((t) => {
+                const isExpanded = expandedTicket === t.id;
+                const comments = ticketComments[t.id] || [];
+                const severityColor: Record<string, string> = {
+                  low: "bg-blue-500/20 text-blue-400",
+                  medium: "bg-yellow-500/20 text-yellow-400",
+                  high: "bg-orange-500/20 text-orange-400",
+                  critical: "bg-red-500/20 text-red-400",
+                };
+                const statusColor: Record<string, string> = {
+                  new: "bg-blue-500/20 text-blue-400",
+                  in_progress: "bg-yellow-500/20 text-yellow-400",
+                  investigating: "bg-yellow-500/20 text-yellow-400",
+                  completed: "bg-green-500/20 text-green-400",
+                  fixed: "bg-green-500/20 text-green-400",
+                  rejected: "bg-red-500/20 text-red-400",
+                  wont_fix: "bg-red-500/20 text-red-400",
+                };
+                const statusOptions = t.type === "workflow_request"
+                  ? ["new", "in_progress", "completed", "rejected"]
+                  : ["new", "investigating", "fixed", "wont_fix"];
+
+                return (
+                  <div key={t.id} className="bg-[#1A1228] border border-[#2A2040] rounded-xl overflow-hidden">
+                    <button
+                      onClick={() => {
+                        const next = isExpanded ? null : t.id;
+                        setExpandedTicket(next);
+                        if (next) fetchTicketComments(t.id);
+                      }}
+                      className="w-full px-5 py-4 flex items-center gap-3 text-left hover:bg-[#1e1630] transition-colors"
+                    >
+                      <span className={`px-2 py-1 rounded text-xs font-medium shrink-0 ${
+                        t.type === "workflow_request" ? "bg-purple-500/20 text-purple-400" : "bg-orange-500/20 text-orange-400"
+                      }`}>
+                        {t.type === "workflow_request" ? "Workflow" : "Bug"}
+                      </span>
+                      <span className="flex-1 text-sm text-white truncate">
+                        {t.type === "workflow_request" ? t.goal : t.title}
+                      </span>
+                      {t.severity && (
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${severityColor[t.severity] || ""}`}>
+                          {t.severity}
+                        </span>
+                      )}
+                      <span className="text-xs text-[#6B6680] shrink-0">
+                        {t.submitter?.full_name || "Unknown"}
+                      </span>
+                      <span className={`px-2 py-1 rounded text-xs font-medium shrink-0 ${statusColor[t.status] || "bg-gray-500/20 text-gray-400"}`}>
+                        {t.status.replace(/_/g, " ")}
+                      </span>
+                      <span className="text-xs text-[#6B6680] shrink-0">{formatDate(t.created_at)}</span>
+                      <svg className={`w-4 h-4 text-[#6B6680] transition-transform shrink-0 ${isExpanded ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                      </svg>
+                    </button>
+
+                    {isExpanded && (
+                      <div className="px-5 pb-5 border-t border-[#2A2040] pt-4 space-y-4">
+                        {/* Details */}
+                        <div className="grid grid-cols-2 gap-4">
+                          {t.type === "workflow_request" ? (
+                            <>
+                              <div>
+                                <p className="text-xs text-[#6B6680]">Goal</p>
+                                <p className="text-sm text-white mt-0.5">{t.goal}</p>
+                              </div>
+                              {t.process && (
+                                <div className="col-span-2">
+                                  <p className="text-xs text-[#6B6680]">Process</p>
+                                  <p className="text-sm text-white mt-0.5 whitespace-pre-wrap">{t.process}</p>
+                                </div>
+                              )}
+                              {t.due_date && (
+                                <div>
+                                  <p className="text-xs text-[#6B6680]">Due Date</p>
+                                  <p className="text-sm text-white mt-0.5">{formatDate(t.due_date)}</p>
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <>
+                              {t.description && (
+                                <div className="col-span-2">
+                                  <p className="text-xs text-[#6B6680]">Description</p>
+                                  <p className="text-sm text-white mt-0.5 whitespace-pre-wrap">{t.description}</p>
+                                </div>
+                              )}
+                              {t.page_feature && (
+                                <div>
+                                  <p className="text-xs text-[#6B6680]">Page / Feature</p>
+                                  <p className="text-sm text-white mt-0.5">{t.page_feature}</p>
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
+
+                        {/* Status change */}
+                        <div className="flex items-center gap-3">
+                          <label className="text-xs text-[#6B6680]">Status:</label>
+                          <select
+                            value={t.status}
+                            onChange={(e) => updateTicketStatus(t.id, e.target.value)}
+                            disabled={!!actionLoading}
+                            className="rounded-lg border border-[#2A2040] bg-[#0F0A1A] px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-[#7C3AED]"
+                          >
+                            {statusOptions.map((s) => (
+                              <option key={s} value={s}>{s.replace(/_/g, " ")}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Comments */}
+                        <div className="pt-3 border-t border-[#2A2040]">
+                          <p className="text-xs font-medium text-[#A09CB0] mb-3">Comments</p>
+                          {comments.length === 0 ? (
+                            <p className="text-xs text-[#6B6680] mb-3">No comments yet.</p>
+                          ) : (
+                            <div className="space-y-3 mb-3">
+                              {comments.map((c) => (
+                                <div key={c.id} className="flex gap-3">
+                                  <div className="w-7 h-7 rounded-full bg-[#2A2040] flex items-center justify-center text-xs font-medium text-[#A09CB0] shrink-0">
+                                    {c.author?.full_name?.[0]?.toUpperCase() || "?"}
+                                  </div>
+                                  <div>
+                                    <p className="text-xs text-[#6B6680]">
+                                      <span className="text-white font-medium">{c.author?.full_name || "Unknown"}</span>
+                                      {" · "}
+                                      {formatDate(c.created_at)}
+                                    </p>
+                                    <p className="text-sm text-[#A09CB0] mt-0.5">{c.body}</p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={newCommentText[t.id] || ""}
+                              onChange={(e) => setNewCommentText((prev) => ({ ...prev, [t.id]: e.target.value }))}
+                              onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && postTicketComment(t.id)}
+                              placeholder="Add a comment..."
+                              className="flex-1 rounded-lg border border-[#2A2040] bg-[#0F0A1A] px-3 py-2 text-sm text-white placeholder-[#6B6680] focus:outline-none focus:ring-1 focus:ring-[#7C3AED]"
+                            />
+                            <button
+                              onClick={() => postTicketComment(t.id)}
+                              disabled={!newCommentText[t.id]?.trim()}
+                              className="px-4 py-2 text-sm font-medium text-white bg-[#7C3AED] rounded-lg hover:bg-[#6D28D9] disabled:opacity-50 transition-colors"
+                            >
+                              Send
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            {tickets.filter((t) => {
+              if (ticketFilter === "all") return true;
+              if (ticketFilter === "workflow_request" || ticketFilter === "bug_report") return t.type === ticketFilter;
+              return t.status === ticketFilter;
+            }).length === 0 && (
+              <div className="text-center py-12 text-[#6B6680] text-sm">
+                No tickets match this filter.
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
 
       {/* Invite Modal */}
       {showInvite && (
