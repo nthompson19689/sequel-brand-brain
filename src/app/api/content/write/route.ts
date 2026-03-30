@@ -275,9 +275,10 @@ export async function POST(request: Request) {
       try {
         send({ type: "status", step: "writing", message: "Writing draft with Opus..." });
 
-        // Cap max_tokens to roughly 1.5x the word count target (words ≈ 1.3 tokens)
-        // This physically prevents the model from writing 2x the target
-        const tokenCap = Math.max(4096, Math.round((wordCount || 1500) * 2));
+        // Token budget: ~1.3 tokens per word + headroom for markdown formatting,
+        // links, and structural elements. Previous 2x multiplier was too aggressive
+        // and caused truncation on articles over ~2000 words.
+        const tokenCap = Math.max(8192, Math.round((wordCount || 1500) * 3));
         const stream = await claude.messages.stream({
           model: resolveModel("claude-opus-4-6"),
           max_tokens: tokenCap,
