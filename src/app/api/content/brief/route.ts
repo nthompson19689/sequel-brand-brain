@@ -127,7 +127,7 @@ Refer to the INTERNAL LINK REFERENCE in your system context. You MUST select 5-1
 
         const stream = await claude.messages.stream({
           model: resolveModel("claude-sonnet-4-6"),
-          max_tokens: MAX_TOKENS * 2,
+          max_tokens: 12288, // Briefs are detailed (outline + data points + 5-10 links + SEO notes)
           system: systemBlocks,
           messages: [{ role: "user", content: briefPrompt }],
         });
