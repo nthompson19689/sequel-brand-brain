@@ -70,7 +70,7 @@ function formatDate(iso: string) {
 // ─── Main Page ──────────────────────────────────────────────────────────────────
 
 export default function RequestsPage() {
-  const { profile, loading: authLoading } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [tab, setTab] = useState<"submit" | "my">("submit");
 
   if (authLoading) {
@@ -81,7 +81,7 @@ export default function RequestsPage() {
     );
   }
 
-  if (!profile) {
+  if (!user) {
     return (
       <div className="flex items-center justify-center h-screen bg-[#0F0A1A]">
         <p className="text-[#A09CB0]">Please sign in to submit requests.</p>
@@ -110,7 +110,7 @@ export default function RequestsPage() {
           ))}
         </div>
 
-        {tab === "submit" ? <SubmitForm /> : <MyTickets userId={profile.id} />}
+        {tab === "submit" ? <SubmitForm /> : <MyTickets userId={user.id} />}
       </div>
     </div>
   );
