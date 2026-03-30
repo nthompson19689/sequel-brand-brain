@@ -1,4 +1,4 @@
-import { getClaudeClient, MAX_TOKENS, resolveModel } from "@/lib/claude";
+import { getClaudeClient, resolveModel } from "@/lib/claude";
 import { getSupabaseServerClient } from "@/lib/supabase";
 import { buildSystemBlocks, logCachePerformance } from "@/lib/brand-context";
 import { scanBannedPatterns, runQualityGates } from "@/lib/content/standards";
@@ -117,6 +117,15 @@ export async function POST(request: Request) {
   const supabase = getSupabaseServerClient();
   const claude = getClaudeClient();
 
+  // Dynamic token cap based on draft length — the editor must reproduce the
+  // full article (annotated in call 1, clean in call 2), so it needs at least
+  // as many tokens as the draft itself, plus headroom for annotations/formatting.
+  const draftWordCount = wordCount || (draft ? draft.split(/\s+/).length : 2000);
+  // Call 1 needs extra headroom for review notes + annotations on top of the full article
+  const call1TokenCap = Math.max(8192, Math.round(draftWordCount * 3));
+  // Call 2 needs headroom for the clean article (slightly larger than raw word count)
+  const call2TokenCap = Math.max(6144, Math.round(draftWordCount * 2));
+
   // Block 1: brand docs (CACHED, same as all routes)
   // Block 2: writing standards + Nathan style guide (CACHED, same as brief/write)
   // Block 3: editor-specific prompt (NOT cached, changes per call)
@@ -209,7 +218,7 @@ export async function POST(request: Request) {
 
         const call1Response = await claude.messages.create({
           model: resolveModel("claude-sonnet-4-6"),
-          max_tokens: MAX_TOKENS * 2,
+          max_tokens: call1TokenCap,
           system: call1Blocks,
           messages: [
             {
@@ -323,7 +332,7 @@ Output: the final clean article ONLY. No annotations, no comments, no meta-comme
 
         const stream = await claude.messages.stream({
           model: resolveModel("claude-opus-4-6"), // Opus for final rewrite — better voice preservation
-          max_tokens: MAX_TOKENS * 2,
+          max_tokens: call2TokenCap,
           system: call3Blocks,
           messages: [
             {
