@@ -216,7 +216,10 @@ export async function POST(request: Request) {
           },
         ];
 
-        const call1Response = await claude.messages.create({
+        // Stream Call 1 to avoid Vercel timeout (non-streaming call on long
+        // articles can exceed 120s). We accumulate the text and send periodic
+        // status updates so the connection stays alive.
+        const call1Stream = await claude.messages.stream({
           model: resolveModel("claude-sonnet-4-6"),
           max_tokens: call1TokenCap,
           system: call1Blocks,
@@ -274,12 +277,22 @@ ${draft}`,
           ],
         });
 
-        logCachePerformance("/api/content/edit[call1]", call1Response.usage);
-
         let call1Text = "";
-        for (const block of call1Response.content) {
-          if (block.type === "text") call1Text += block.text;
+        let call1Chunks = 0;
+        for await (const event of call1Stream) {
+          if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+            call1Text += event.delta.text;
+            call1Chunks++;
+            // Send periodic status updates to keep the SSE connection alive
+            // and show progress to the user
+            if (call1Chunks % 50 === 0) {
+              send({ type: "status", step: "call1", message: `Reviewing and annotating... (${Math.round(call1Text.length / 100)}% processed)` });
+            }
+          }
         }
+
+        const call1Final = await call1Stream.finalMessage();
+        logCachePerformance("/api/content/edit[call1]", call1Final.usage);
 
         // Extract just the violation notes for storage (everything before the annotated article)
         const annotationStart = call1Text.indexOf("[EDIT");
@@ -331,7 +344,7 @@ Output: the final clean article ONLY. No annotations, no comments, no meta-comme
         ];
 
         const stream = await claude.messages.stream({
-          model: resolveModel("claude-opus-4-6"), // Opus for final rewrite — better voice preservation
+          model: resolveModel("claude-sonnet-4-6"), // Sonnet for cost efficiency (~$0.06 vs $0.20)
           max_tokens: call2TokenCap,
           system: call3Blocks,
           messages: [
