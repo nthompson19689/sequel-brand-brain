@@ -4,7 +4,7 @@ import { buildSystemBlocks, logCachePerformance } from "@/lib/brand-context";
 import { scanBannedPatterns, runQualityGates } from "@/lib/content/standards";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 /**
  * Editorial pipeline: 3-call system
@@ -117,15 +117,9 @@ export async function POST(request: Request) {
   const supabase = getSupabaseServerClient();
   const claude = getClaudeClient();
 
-  // Dynamic token cap based on draft length — the editor must reproduce the
-  // full article (annotated in call 1, clean in call 2), so it needs at least
-  // as many tokens as the draft itself, plus headroom for annotations/formatting.
+  // Dynamic token cap for Call 2 (clean article output).
+  // Call 1 is now a compact edit list (capped at 4096).
   const draftWordCount = wordCount || (draft ? draft.split(/\s+/).length : 2000);
-  // Call 1: review notes (~2K tokens) + FULL annotated article with [EDIT] markers
-  // (~1.5x the raw draft). Floor of 16384 because even a 1500-word article
-  // needs ~10K tokens when fully annotated with review section.
-  const call1TokenCap = Math.max(16384, Math.round(draftWordCount * 4));
-  // Call 2: clean article output (~1.3x the raw draft word count in tokens)
   const call2TokenCap = Math.max(8192, Math.round(draftWordCount * 2.5));
 
   // Block 1: brand docs (CACHED, same as all routes)
@@ -202,112 +196,75 @@ export async function POST(request: Request) {
         });
 
         // =====================
-        // CALL 1: Combined review + annotated version (merged from previous 2-call approach)
+        // CALL 1: Compact edit list ONLY (no article reproduction)
+        // Must complete in <25s to leave time for Call 2 within 60s limit
         // =====================
         send({
           type: "status",
           step: "call1",
-          message: "Call 1/2 — Reviewing and annotating...",
+          message: "Call 1/2 — Scanning for issues...",
         });
 
         const call1Blocks = [
           ...baseBlocks,
           {
             type: "text" as const,
-            text: `${EDITOR_IDENTITY}\n\n${KILL_LIST_FOR_EDITOR}\n\nYou are performing Call 1 of 2: the combined review and annotation. You will identify every issue AND produce the annotated article in a single pass. This saves tokens while maintaining quality.`,
+            text: `${EDITOR_IDENTITY}\n\n${KILL_LIST_FOR_EDITOR}\n\nYou are performing Call 1 of 2: the FAST violation scan. Output ONLY a compact edit list. Do NOT reproduce the article. Be concise.`,
           },
         ];
 
-        // Stream Call 1 to avoid Vercel timeout (non-streaming call on long
-        // articles can exceed 120s). We accumulate the text and send periodic
-        // status updates so the connection stays alive.
-        const call1Stream = await claude.messages.stream({
+        const call1Response = await claude.messages.create({
           model: resolveModel("claude-sonnet-4-6"),
-          max_tokens: call1TokenCap,
+          max_tokens: 4096, // Compact edit list only — no article reproduction
           system: call1Blocks,
           messages: [
             {
               role: "user",
-              content: `Review this article and produce an annotated version with inline fix markers. Do BOTH tasks in one pass.
+              content: `Scan this article and output a COMPACT edit list. Be fast and concise.
 
-PART 1: ESSAY DEPTH AUDIT (output first, before the annotated article)
-1. Count sections with 400+ words of sustained prose. Need at least 2. Flag if fewer.
-2. Check prose-to-list ratio. Target: 60% prose / 25% lists / 15% short. Flag if lists dominate.
-3. Check for "H2 → intro → bullet list → done" sections. Flag each one.
-4. Check connective tissue between sections. Flag disconnected sections.
-5. Check paragraph length variety. Flag if every paragraph is 1-2 sentences.
-6. Check section length variety. Flag if all sections are similar length.
-
-STRUCTURAL REPETITION AUDIT:
-- Map each H2's opening/closing pattern. Flag 3+ consecutive same patterns.
-- Flag "Most companies/teams..." used 3+ times, "That's [noun]." used 2+ times.
-- Flag fewer than 3 list blocks or fewer than 2 sections with conversational asides.
-
-ANTI-PATTERN CHECK (flag as HIGH severity):
-- Repetitive H2 structure, monotone paragraphs, setup sentences, listicle padding
-- Non-blog internal links, insufficient internal links (<5), first-person singular
-- "It's not about X, it's about Y" constructions, question stacks
-- Word count significantly over target (15%+)
+FORMAT — output ONLY lines like this (no prose, no explanations):
+FIND: exact text from article
+REPLACE: replacement text
+RULE: which rule it violates
+---
 
 PRE-DETECTED ISSUES (from regex scan):
 ${violationSummary}
 
 ${linkAnalysis}
 
-PART 2: ANNOTATED ARTICLE
-After the audit summary, reproduce the FULL article with inline markers:
-[EDIT (Severity): 'original text' -> 'replacement text' | Rule: rule name]
+CHECK FOR:
+- Kill list phrases (replace each one)
+- Em dashes (replace with commas/periods/restructure)
+- First-person singular (change to we/our)
+- Vague claims without specifics
+- "It's not about X, it's about Y" constructions
+- Non-blog internal links (only /post/ URLs allowed)
+- Insufficient internal links (need 5+)
+- Passive voice
+- Setup sentences that announce the next sentence
+- PRESERVE: humor, asides, personality, ALL external links
 
-CRITICAL RULES:
-1. PRESERVE ALL LINKS — both internal (sequel.io) AND external. NEVER remove any link.
-2. EXTERNAL LINKS ARE SACRED. Every citation URL must survive editing.
-3. Mark duplicate internal URLs for removal (keep the most natural one).
-4. PRESERVE conversational asides, humor, self-deprecation, parenthetical observations.
-5. Only fix actual violations: kill list, em dashes, passive voice, vague claims.
-6. Maintain Sequel team voice (we/our). Tighten data, loosen voice.
+End with a one-line summary: "X edits found."
 
-End with:
-## LINK AUDIT
-- Internal links preserved: [count]
-- External links preserved: [count]
-- Links removed (duplicates only): [count]
-- Internal link count: [total] ${totalLinks < 5 ? "(WARNING: below minimum of 5)" : "(OK)"}
-
-Article to review and annotate:
+Article:
 ${draft}`,
             },
           ],
         });
 
+        // Send periodic keepalive during Call 1
+        send({ type: "status", step: "call1", message: "Analyzing..." });
+
         let call1Text = "";
-        let call1Chunks = 0;
-        for await (const event of call1Stream) {
-          if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-            call1Text += event.delta.text;
-            call1Chunks++;
-            // Send periodic status updates to keep the SSE connection alive
-            // and show progress to the user
-            if (call1Chunks % 50 === 0) {
-              send({ type: "status", step: "call1", message: `Reviewing and annotating... (${Math.round(call1Text.length / 100)}% processed)` });
-            }
-          }
+        for (const block of call1Response.content) {
+          if (block.type === "text") call1Text += block.text;
         }
+        logCachePerformance("/api/content/edit[call1]", call1Response.usage);
+        console.log(`[edit] Call 1 complete. ${call1Text.length} chars, ${call1Text.split("FIND:").length - 1} edits found.`);
 
-        const call1Final = await call1Stream.finalMessage();
-        logCachePerformance("/api/content/edit[call1]", call1Final.usage);
-
-        // Check if Call 1 was truncated — this means the annotated article is incomplete
-        if (call1Final.stop_reason === "max_tokens") {
-          console.warn(`[edit] Call 1 hit max_tokens (${call1TokenCap}). Draft was ${draftWordCount} words. Output truncated at ${call1Text.length} chars.`);
-          send({ type: "status", step: "call1", message: "Warning: review was truncated. Proceeding with available content..." });
-        }
-
-        // Extract just the violation notes for storage (everything before the annotated article)
-        const annotationStart = call1Text.indexOf("[EDIT");
-        const reviewNotes = annotationStart > 0 ? call1Text.slice(0, annotationStart).trim() : call1Text.slice(0, 2000);
+        const reviewNotes = call1Text;
         send({ type: "call1_complete", notes: reviewNotes });
-        // The full call1Text (review + annotated article) goes to Call 2
-        const call2Text = call1Text;
 
         // =====================
         // CALL 2: Clean final version (streamed, uses Opus for voice preservation)
@@ -322,43 +279,40 @@ ${draft}`,
           ...baseBlocks,
           {
             type: "text" as const,
-            text: `${EDITOR_IDENTITY}\n\nYou are performing Call 2 of 2: the clean final version. Apply ALL edits from the annotated version. Remove all annotation markup. Output ONLY the clean article.
+            text: `${EDITOR_IDENTITY}\n\nYou are performing Call 2 of 2: apply the edit list to the original draft and output the CLEAN final version. You will receive the original article and a list of FIND/REPLACE edits. Apply each edit, then output the complete article.
 
-FINAL PASS RULES:
-1. ZERO kill list phrases remaining.
-2. ZERO em dashes remaining (including --, —, –). Use commas, periods, or restructure.
-3. ZERO colons in headings.
-4. ALL internal links preserved with correct URLs. Each URL appears only ONCE.
-5. ALL external links (citations, sources, stats) preserved. NEVER remove an external link. Every statistic that had a source URL in the draft MUST still have that source URL in the final version. Count external links before and after — the count must be equal or higher. Removing a citation is a HIGH SEVERITY failure.
-6. Minimum 5 unique internal links. If there are fewer, DO NOT remove any.
-7. Every H2 section over 300 words has at least one ### H3.
-8. PRESERVE longer paragraphs (3-5 sentences) when they develop an argument.
-9. Conversational tone, humor, asides fully preserved.
-10. META description and SLUG present at the top. NEVER modify the SLUG.
-11. FAQ FORMAT: The FAQ section MUST be structured as:
-    - ## FAQ (or ## Frequently Asked Questions) as the H2 heading
-    - Each question as a ### H3 heading (plain text question, NO numbers, NO bold, NO "Q:" prefix)
-    - Answer as plain prose below each ### heading (2-3 sentences, self-contained)
-    - Example format:
-      ## FAQ
-      ### Can you turn a webinar into a podcast?
-      Yes. Extract the audio, edit for flow, and publish as an episode. One hour of production, two distribution channels.
-12. At least 2 sections must have 400+ words of sustained prose. Do NOT shorten deep dive sections.
-13. Connective tissue between sections preserved or improved.
-14. Primary keyword in H1, first 100 words, and at least 2 H2 headings.
+RULES:
+1. Apply every FIND/REPLACE edit from the edit list.
+2. ZERO kill list phrases remaining after edits.
+3. ZERO em dashes remaining (use commas, periods, or restructure).
+4. ZERO colons in headings.
+5. ALL internal links preserved. Each URL appears only ONCE.
+6. ALL external links preserved. NEVER remove a citation. Removing a source URL is a HIGH SEVERITY failure.
+7. Minimum 5 unique internal links.
+8. PRESERVE conversational tone, humor, asides, personality.
+9. META description and SLUG at top. NEVER modify the SLUG.
+10. FAQ section: ## FAQ heading, ### H3 per question (plain text, no numbers/bold), prose answers.
+11. At least 2 sections with 400+ words of sustained prose.
+12. Primary keyword in H1, first 100 words, and at least 2 H2s.
 
-Output: the final clean article ONLY. No annotations, no comments, no meta-commentary.`,
+Output: the COMPLETE final article ONLY. No commentary, no edit markers, no meta text.`,
           },
         ];
 
         const stream = await claude.messages.stream({
-          model: resolveModel("claude-sonnet-4-6"), // Sonnet for cost efficiency (~$0.06 vs $0.20)
+          model: resolveModel("claude-sonnet-4-6"),
           max_tokens: call2TokenCap,
           system: call3Blocks,
           messages: [
             {
               role: "user",
-              content: `Produce the final clean version. Apply all edits from the annotated version below. Remove all [EDIT] markers. Output only the finished article.\n\n${call2Text}`,
+              content: `Apply the following edits to the article below and output the complete clean final version.
+
+## EDIT LIST
+${reviewNotes}
+
+## ORIGINAL ARTICLE
+${draft}`,
             },
           ],
         });
