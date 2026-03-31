@@ -1210,16 +1210,93 @@ function ImporterSection() {
     }
   }
 
+  // ── Quick Sync (all 3 sitemaps) ──
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<{ added: number; total: number; message: string } | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
+
+  async function handleQuickSync() {
+    setSyncing(true);
+    setSyncResult(null);
+    setSyncError(null);
+
+    try {
+      const res = await fetch("/api/cron/sitemap-sync", { method: "GET" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Sync failed (${res.status})`);
+      }
+      const data = await res.json();
+      const added = data.new_imported || 0;
+      setSyncResult({
+        added,
+        total: data.total_found || 0,
+        message: added > 0
+          ? `Added ${added} new page${added === 1 ? "" : "s"} to the knowledge base.${data.failed ? ` (${data.failed} failed)` : ""}`
+          : `No new pages found — your knowledge base is up to date. (${data.total_found || 0} pages checked)`,
+      });
+    } catch (err) {
+      setSyncError(err instanceof Error ? err.message : "Sync failed");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
-      {/* Sitemap input */}
+      {/* Quick Sync — all 3 sitemaps */}
+      <div className="bg-gradient-to-r from-purple-50 to-indigo-50 rounded-xl border border-purple-200 p-5">
+        <div className="flex items-center justify-between mb-2">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700">Quick Sync — Sequel.io</h3>
+            <p className="text-xs text-gray-500 mt-1">
+              Scans 3 sitemaps for new blog posts, product pages, and case studies. Only adds pages not already in the knowledge base.
+            </p>
+          </div>
+          <button
+            onClick={handleQuickSync}
+            disabled={syncing || importing}
+            className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-brand-500 rounded-xl hover:bg-brand-600 disabled:opacity-40 transition-colors shadow-sm shrink-0"
+          >
+            {syncing ? (
+              <>
+                <Spinner size="sm" />
+                Syncing...
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182" />
+                </svg>
+                Sync Now
+              </>
+            )}
+          </button>
+        </div>
+        <div className="flex gap-3 mt-3">
+          <span className="text-xs text-gray-400 bg-white px-2.5 py-1 rounded-md border border-gray-200">📝 post-sitemap.xml</span>
+          <span className="text-xs text-gray-400 bg-white px-2.5 py-1 rounded-md border border-gray-200">📄 page-sitemap.xml</span>
+          <span className="text-xs text-gray-400 bg-white px-2.5 py-1 rounded-md border border-gray-200">📖 story-sitemap.xml</span>
+        </div>
+        {syncResult && (
+          <div className={`mt-3 text-sm px-3 py-2 rounded-lg ${syncResult.added > 0 ? "bg-green-50 text-green-700 border border-green-200" : "bg-blue-50 text-blue-700 border border-blue-200"}`}>
+            {syncResult.message}
+          </div>
+        )}
+        {syncError && (
+          <div className="mt-3 text-sm px-3 py-2 rounded-lg bg-red-50 text-red-700 border border-red-200">
+            {syncError}
+          </div>
+        )}
+      </div>
+
+      {/* Manual sitemap input */}
       <div className="bg-white rounded-xl border border-gray-200 p-5">
         <h3 className="text-sm font-semibold text-gray-700 mb-3">
-          Import from Sitemap
+          Import from Custom Sitemap
         </h3>
         <p className="text-xs text-gray-400 mb-3">
-          Enter your sitemap URL to discover and import all your website content.
-          Typically at /sitemap.xml or /sitemap_index.xml
+          Or enter any sitemap URL to discover and import content from other sources.
         </p>
         <div className="flex gap-3">
           <input
