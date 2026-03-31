@@ -121,10 +121,12 @@ export async function POST(request: Request) {
   // full article (annotated in call 1, clean in call 2), so it needs at least
   // as many tokens as the draft itself, plus headroom for annotations/formatting.
   const draftWordCount = wordCount || (draft ? draft.split(/\s+/).length : 2000);
-  // Call 1 needs extra headroom for review notes + annotations on top of the full article
-  const call1TokenCap = Math.max(8192, Math.round(draftWordCount * 3));
-  // Call 2 needs headroom for the clean article (slightly larger than raw word count)
-  const call2TokenCap = Math.max(6144, Math.round(draftWordCount * 2));
+  // Call 1: review notes (~2K tokens) + FULL annotated article with [EDIT] markers
+  // (~1.5x the raw draft). Floor of 16384 because even a 1500-word article
+  // needs ~10K tokens when fully annotated with review section.
+  const call1TokenCap = Math.max(16384, Math.round(draftWordCount * 4));
+  // Call 2: clean article output (~1.3x the raw draft word count in tokens)
+  const call2TokenCap = Math.max(8192, Math.round(draftWordCount * 2.5));
 
   // Block 1: brand docs (CACHED, same as all routes)
   // Block 2: writing standards + Nathan style guide (CACHED, same as brief/write)
@@ -293,6 +295,12 @@ ${draft}`,
 
         const call1Final = await call1Stream.finalMessage();
         logCachePerformance("/api/content/edit[call1]", call1Final.usage);
+
+        // Check if Call 1 was truncated — this means the annotated article is incomplete
+        if (call1Final.stop_reason === "max_tokens") {
+          console.warn(`[edit] Call 1 hit max_tokens (${call1TokenCap}). Draft was ${draftWordCount} words. Output truncated at ${call1Text.length} chars.`);
+          send({ type: "status", step: "call1", message: "Warning: review was truncated. Proceeding with available content..." });
+        }
 
         // Extract just the violation notes for storage (everything before the annotated article)
         const annotationStart = call1Text.indexOf("[EDIT");
