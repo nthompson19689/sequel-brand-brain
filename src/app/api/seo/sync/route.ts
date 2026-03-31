@@ -149,7 +149,8 @@ async function fetchAhrefsDomainRating(): Promise<{ domainRating: number; ahrefs
     );
 
     if (!res.ok) {
-      console.warn(`Ahrefs domain-rating: ${res.status}`);
+      const errBody = await res.text();
+      console.warn(`Ahrefs domain-rating failed: HTTP ${res.status} — ${errBody}`);
       return { domainRating: 0, ahrefsRank: 0 };
     }
 
@@ -241,7 +242,8 @@ export async function POST() {
         ga4Map.set(fullUrl.replace(/\/$/, ""), row);
       }
     } catch (err) {
-      console.warn("SEO Sync: GA4 fetch failed, continuing without GA4 data:", err);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.warn("SEO Sync: GA4 fetch failed, continuing without GA4 data:", errMsg);
     }
 
     // 3. Fetch Ahrefs domain rating (single call — per-URL ratings aren't
