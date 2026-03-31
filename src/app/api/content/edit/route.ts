@@ -377,6 +377,19 @@ Output: the final clean article ONLY. No annotations, no comments, no meta-comme
         const finalMsg = await stream.finalMessage();
         logCachePerformance("/api/content/edit[call2-final]", finalMsg.usage);
 
+        console.log(`[edit] Call 2 complete. stop_reason=${finalMsg.stop_reason}, cleanDraft length=${cleanDraft.length} chars, ~${cleanDraft.split(/\s+/).length} words`);
+        console.log(`[edit] Call 1 output length=${call1Text.length} chars. Had [EDIT] markers: ${call1Text.includes("[EDIT")}`);
+
+        // If Call 2 produced essentially nothing, the editor failed silently
+        if (cleanDraft.trim().length < 200) {
+          console.error(`[edit] Call 2 produced only ${cleanDraft.length} chars — likely failed. Call 1 had ${call1Text.length} chars. Falling back to original draft.`);
+          send({ type: "status", step: "quality", message: "Warning: editor produced insufficient output. Please try again." });
+          // Don't save an empty/tiny edited_draft — it would overwrite the real draft
+          send({ type: "error", error: "The editor failed to produce output. This usually means the review step was truncated. Please try running the editor again." });
+          controller.close();
+          return;
+        }
+
         // Run quality gates on the final output
         send({
           type: "status",

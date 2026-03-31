@@ -99,6 +99,7 @@ export default function ContentPostPage() {
     const decoder = new TextDecoder();
     let buffer = "";
     let fullText = "";
+    let completeDraft = ""; // Fallback: the editedDraft from the "complete" event
 
     while (true) {
       const { done, value } = await reader.read();
@@ -113,11 +114,13 @@ export default function ContentPostPage() {
           const event = JSON.parse(line.slice(6));
           if (event.type === "delta") { fullText += event.text; onDelta(event.text); }
           else if (event.type === "status") { onStatus(event.message); }
+          else if (event.type === "complete" && event.editedDraft) { completeDraft = event.editedDraft; }
           else if (event.type === "error") throw new Error(event.error);
         } catch (e) { if (e instanceof SyntaxError) continue; throw e; }
       }
     }
-    return fullText;
+    // Use streamed text if we got it, otherwise fall back to the complete event's editedDraft
+    return fullText || completeDraft;
   }
 
   // ── Stage 1: Generate Brief ──
