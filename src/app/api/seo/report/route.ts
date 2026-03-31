@@ -80,7 +80,7 @@ async function fetchPeriodData(auth: any, startDate: string, endDate: string): P
         const sess = parseInt(row.metricValues?.[0]?.value || "0", 10);
         totalSessions += sess;
         // Match to GSC pages
-        for (const [url, data] of pages) {
+        for (const [url, data] of Array.from(pages)) {
           try {
             if (new URL(url).pathname === path || new URL(url).pathname === path.replace(/\/$/, "")) {
               data.sessions = sess;
@@ -113,7 +113,7 @@ async function fetchPeriodData(auth: any, startDate: string, endDate: string): P
         const path = row.dimensionValues?.[0]?.value || "";
         const count = parseInt(row.metricValues?.[0]?.value || "0", 10);
         totalConversions += count;
-        for (const [url, data] of pages) {
+        for (const [url, data] of Array.from(pages)) {
           try {
             if (new URL(url).pathname === path || new URL(url).pathname === path.replace(/\/$/, "")) {
               data.conversions = count;
@@ -154,7 +154,7 @@ export async function POST() {
 
     // Top 3 pages by click growth
     const pageGrowth: Array<{ url: string; current: number; previous: number; growth: number }> = [];
-    for (const [url, data] of thisWeek.pages) {
+    for (const [url, data] of Array.from(thisWeek.pages)) {
       const prev = lastWeek.pages.get(url);
       const growth = data.clicks - (prev?.clicks || 0);
       pageGrowth.push({ url, current: data.clicks, previous: prev?.clicks || 0, growth });
@@ -164,7 +164,7 @@ export async function POST() {
 
     // Pages that dropped 30%+
     const declining: Array<{ url: string; current: number; previous: number; drop: number }> = [];
-    for (const [url, prevData] of lastWeek.pages) {
+    for (const [url, prevData] of Array.from(lastWeek.pages)) {
       const curr = thisWeek.pages.get(url);
       const currClicks = curr?.clicks || 0;
       if (prevData.clicks >= 5 && currClicks < prevData.clicks * 0.7) {
