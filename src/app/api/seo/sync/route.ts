@@ -21,10 +21,6 @@ interface Ga4Row {
   engagementRate: number;
 }
 
-interface AhrefsData {
-  url_rating: number;
-  referring_domains: number;
-}
 
 interface PageMetrics {
   url: string;
@@ -132,63 +128,40 @@ async function fetchGa4Data(auth: InstanceType<typeof google.auth.JWT>): Promise
 
 // ─── Ahrefs ──────────────────────────────────────────────────────────────────
 
-async function fetchAhrefsData(urls: string[]): Promise<Map<string, AhrefsData>> {
+async function fetchAhrefsDomainRating(): Promise<{ domainRating: number; ahrefsRank: number }> {
   const apiKey = process.env.AHREFS_API_KEY;
-  const results = new Map<string, AhrefsData>();
 
   if (!apiKey) {
     console.log("Ahrefs: AHREFS_API_KEY not set, skipping");
-    return results;
+    return { domainRating: 0, ahrefsRank: 0 };
   }
 
-  // Batch in groups of 5 to avoid rate limits
-  const batchSize = 5;
-  for (let i = 0; i < urls.length; i += batchSize) {
-    const batch = urls.slice(i, i + batchSize);
-
-    const settled = await Promise.allSettled(
-      batch.map(async (url) => {
-        const res = await fetch(
-          `https://api.ahrefs.com/v3/site-explorer/url-rating?target=${encodeURIComponent(url)}&mode=exact`,
-          {
-            headers: {
-              Authorization: `Bearer ${apiKey}`,
-              Accept: "application/json",
-            },
-          }
-        );
-
-        if (!res.ok) {
-          console.warn(`Ahrefs: ${res.status} for ${url}`);
-          return { url, url_rating: 0, referring_domains: 0 };
-        }
-
-        const data = await res.json();
-        return {
-          url,
-          url_rating: data.url_rating ?? data.ahrefs_rank ?? 0,
-          referring_domains: data.referring_domains ?? data.refdomains ?? 0,
-        };
-      })
+  try {
+    const today = new Date().toISOString().split("T")[0];
+    const res = await fetch(
+      `https://api.ahrefs.com/v3/site-explorer/domain-rating?target=sequel.io&date=${today}`,
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          Accept: "application/json",
+        },
+      }
     );
 
-    for (const result of settled) {
-      if (result.status === "fulfilled") {
-        results.set(result.value.url, {
-          url_rating: result.value.url_rating,
-          referring_domains: result.value.referring_domains,
-        });
-      }
+    if (!res.ok) {
+      console.warn(`Ahrefs domain-rating: ${res.status}`);
+      return { domainRating: 0, ahrefsRank: 0 };
     }
 
-    // Brief pause between batches
-    if (i + batchSize < urls.length) {
-      await new Promise((resolve) => setTimeout(resolve, 200));
-    }
+    const data = await res.json();
+    const dr = data.domain_rating?.domain_rating ?? 0;
+    const rank = data.domain_rating?.ahrefs_rank ?? 0;
+    console.log(`Ahrefs: domain rating = ${dr}, rank = ${rank}`);
+    return { domainRating: dr, ahrefsRank: rank };
+  } catch (err) {
+    console.warn("Ahrefs: domain-rating fetch failed:", err);
+    return { domainRating: 0, ahrefsRank: 0 };
   }
-
-  console.log(`Ahrefs: fetched data for ${results.size}/${urls.length} URLs`);
-  return results;
 }
 
 // ─── Scoring ─────────────────────────────────────────────────────────────────
@@ -271,8 +244,9 @@ export async function POST() {
       console.warn("SEO Sync: GA4 fetch failed, continuing without GA4 data:", err);
     }
 
-    // 3. Fetch Ahrefs data
-    const ahrefsMap = await fetchAhrefsData(gscData.map((r) => r.url));
+    // 3. Fetch Ahrefs domain rating (single call — per-URL ratings aren't
+    // available via the Ahrefs API for individual pages on most sites)
+    const { domainRating } = await fetchAhrefsDomainRating();
 
     // 4. Calculate scores
     const maxClicks = Math.max(...gscData.map((r) => r.clicks), 1);
@@ -280,15 +254,14 @@ export async function POST() {
     const now = new Date().toISOString();
 
     const rows: PageMetrics[] = gscData.map((gsc) => {
-      const ga4 = ga4Map.get(gsc.url);
-      const ahrefs = ahrefsMap.get(gsc.url);
+      const ga4 = ga4Map.get(gsc.url) || ga4Map.get(gsc.url.replace(/\/$/, ""));
 
       const { score, status } = calculateHealthScore({
         clicks: gsc.clicks,
         maxClicks,
         avgPosition: gsc.position,
         engagementRate: ga4?.engagementRate || 0,
-        urlRating: ahrefs?.url_rating || 0,
+        urlRating: domainRating, // Same domain rating for all pages
         ctr: gsc.ctr,
         maxCtr,
       });
@@ -301,8 +274,8 @@ export async function POST() {
         avg_position: Math.round(gsc.position * 10) / 10,
         sessions: ga4?.sessions || 0,
         engagement_rate: Math.round((ga4?.engagementRate || 0) * 10000) / 10000,
-        url_rating: ahrefs?.url_rating || 0,
-        referring_domains: ahrefs?.referring_domains || 0,
+        url_rating: domainRating, // Domain-level rating (Ahrefs doesn't expose per-URL via API)
+        referring_domains: 0, // Not available per-URL in Ahrefs API v3
         health_score: score,
         status,
         synced_at: now,
