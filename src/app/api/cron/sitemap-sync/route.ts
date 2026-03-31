@@ -18,11 +18,19 @@ const SITEMAPS = [
  * fetches and imports only the new ones.
  */
 export async function GET(request: NextRequest) {
-  // Verify cron secret
+  // Verify caller: accept either cron secret OR authenticated user session
   const authHeader = request.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const hasCronAuth = !cronSecret || authHeader === `Bearer ${cronSecret}`;
+
+  if (!hasCronAuth) {
+    // Fall back to user session auth (for manual "Sync Now" from UI)
+    const { createSupabaseServerAuthClient } = await import("@/lib/supabase-auth-server");
+    const authClient = createSupabaseServerAuthClient();
+    const { data: { session } } = await authClient.auth.getSession();
+    if (!session?.user) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
   }
 
   const supabase = getSupabaseServerClient();
