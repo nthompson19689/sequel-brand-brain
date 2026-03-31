@@ -1,5 +1,5 @@
 import { google } from "googleapis";
-import { getServiceAccountCredentials } from "@/lib/google-auth";
+import { getGoogleAuth } from "@/lib/google-auth";
 import { getSupabaseServerClient } from "@/lib/supabase";
 
 export const runtime = "nodejs";
@@ -35,20 +35,6 @@ interface PageMetrics {
   health_score: number;
   status: "working" | "needs_push" | "not_working";
   synced_at: string;
-}
-
-// ─── Google Auth ─────────────────────────────────────────────────────────────
-
-function getGoogleAuth() {
-  const creds = getServiceAccountCredentials();
-  return new google.auth.JWT({
-    email: creds.client_email,
-    key: creds.private_key,
-    scopes: [
-      "https://www.googleapis.com/auth/webmasters.readonly",
-      "https://www.googleapis.com/auth/analytics.readonly",
-    ],
-  });
 }
 
 // ─── GSC ─────────────────────────────────────────────────────────────────────
@@ -124,6 +110,97 @@ async function fetchGa4Data(auth: InstanceType<typeof google.auth.JWT>): Promise
     sessions: parseInt(r.metricValues?.[0]?.value || "0", 10),
     engagementRate: parseFloat(r.metricValues?.[1]?.value || "0"),
   }));
+}
+
+// ─── GA4: Conversions (book_demo events per page, organic only) ──────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function fetchGa4Conversions(auth: any): Promise<Map<string, number>> {
+  const propertyId = process.env.GA4_PROPERTY_ID;
+  if (!propertyId) return new Map();
+
+  try {
+    const analyticsdata = google.analyticsdata({ version: "v1beta", auth });
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(endDate.getDate() - 28);
+    const fmt = (d: Date) => d.toISOString().split("T")[0];
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const res = await (analyticsdata.properties as any).runReport({
+      property: `properties/${propertyId}`,
+      requestBody: {
+        dateRanges: [{ startDate: fmt(startDate), endDate: fmt(endDate) }],
+        dimensions: [{ name: "pagePath" }],
+        metrics: [{ name: "eventCount" }],
+        dimensionFilter: {
+          andGroup: {
+            expressions: [
+              { filter: { fieldName: "eventName", stringFilter: { value: "book_demo" } } },
+              { filter: { fieldName: "sessionDefaultChannelGroup", stringFilter: { value: "Organic Search" } } },
+            ],
+          },
+        },
+        limit: 1000,
+      },
+    });
+
+    const map = new Map<string, number>();
+    for (const row of res.data.rows || []) {
+      const path = row.dimensionValues?.[0]?.value || "";
+      const count = parseInt(row.metricValues?.[0]?.value || "0", 10);
+      if (path) map.set(path, count);
+    }
+    console.log(`GA4 conversions: ${map.size} pages with book_demo events`);
+    return map;
+  } catch (err) {
+    console.warn("GA4 conversions fetch failed:", err);
+    return new Map();
+  }
+}
+
+// ─── GA4: New vs Returning visitors (organic only) ──────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function fetchGa4VisitorTypes(auth: any): Promise<{ newSessions: number; returningSessions: number }> {
+  const propertyId = process.env.GA4_PROPERTY_ID;
+  if (!propertyId) return { newSessions: 0, returningSessions: 0 };
+
+  try {
+    const analyticsdata = google.analyticsdata({ version: "v1beta", auth });
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(endDate.getDate() - 28);
+    const fmt = (d: Date) => d.toISOString().split("T")[0];
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const res = await (analyticsdata.properties as any).runReport({
+      property: `properties/${propertyId}`,
+      requestBody: {
+        dateRanges: [{ startDate: fmt(startDate), endDate: fmt(endDate) }],
+        dimensions: [{ name: "newVsReturning" }],
+        metrics: [{ name: "sessions" }],
+        dimensionFilter: {
+          filter: { fieldName: "sessionDefaultChannelGroup", stringFilter: { value: "Organic Search" } },
+        },
+        limit: 10,
+      },
+    });
+
+    let newSessions = 0;
+    let returningSessions = 0;
+    for (const row of res.data.rows || []) {
+      const type = row.dimensionValues?.[0]?.value || "";
+      const count = parseInt(row.metricValues?.[0]?.value || "0", 10);
+      if (type === "new") newSessions = count;
+      else if (type === "returning") returningSessions = count;
+    }
+    console.log(`GA4 visitors: ${newSessions} new, ${returningSessions} returning`);
+    return { newSessions, returningSessions };
+  } catch (err) {
+    console.warn("GA4 visitor types fetch failed:", err);
+    return { newSessions: 0, returningSessions: 0 };
+  }
 }
 
 // ─── Ahrefs ──────────────────────────────────────────────────────────────────
@@ -246,9 +323,14 @@ export async function POST() {
       console.warn("SEO Sync: GA4 fetch failed, continuing without GA4 data:", errMsg);
     }
 
-    // 3. Fetch Ahrefs domain rating (single call — per-URL ratings aren't
-    // available via the Ahrefs API for individual pages on most sites)
+    // 3. Fetch Ahrefs domain rating
     const { domainRating } = await fetchAhrefsDomainRating();
+
+    // 4. Fetch GA4 conversions (book_demo events per page)
+    const conversionMap = await fetchGa4Conversions(auth);
+
+    // 5. Fetch GA4 new vs returning visitors
+    const visitorTypes = await fetchGa4VisitorTypes(auth);
 
     // 4. Calculate scores
     const maxClicks = Math.max(...gscData.map((r) => r.clicks), 1);
@@ -268,6 +350,11 @@ export async function POST() {
         maxCtr,
       });
 
+      // Extract path for conversion matching
+      let pagePath = "/";
+      try { pagePath = new URL(gsc.url).pathname; } catch { /* ignore */ }
+      const conversions = conversionMap.get(pagePath) || conversionMap.get(pagePath.replace(/\/$/, "")) || 0;
+
       return {
         url: gsc.url,
         clicks: gsc.clicks,
@@ -276,10 +363,13 @@ export async function POST() {
         avg_position: Math.round(gsc.position * 10) / 10,
         sessions: ga4?.sessions || 0,
         engagement_rate: Math.round((ga4?.engagementRate || 0) * 10000) / 10000,
-        url_rating: domainRating, // Domain-level rating (Ahrefs doesn't expose per-URL via API)
-        referring_domains: 0, // Not available per-URL in Ahrefs API v3
+        url_rating: domainRating,
+        referring_domains: 0,
         health_score: score,
         status,
+        conversions,
+        new_users: visitorTypes.newSessions,
+        returning_users: visitorTypes.returningSessions,
         synced_at: now,
       };
     });

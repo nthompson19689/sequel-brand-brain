@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { Fragment, useEffect, useState, useMemo, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "next/navigation";
 
@@ -18,9 +18,20 @@ interface PageMetrics {
   url_rating: number;
   referring_domains: number;
   health_score: number;
+  conversions: number;
+  new_users: number;
+  returning_users: number;
   status: "working" | "needs_push" | "not_working";
   synced_at: string;
   created_at: string;
+  // MoM previous period fields (populated when timeFrame === 'mom')
+  prev_clicks?: number;
+  prev_impressions?: number;
+  prev_ctr?: number;
+  prev_avg_position?: number;
+  prev_sessions?: number;
+  prev_engagement_rate?: number;
+  prev_conversions?: number;
 }
 
 interface Summary {
@@ -29,10 +40,43 @@ interface Summary {
   needs_push_count: number;
   not_working_count: number;
   last_synced: string | null;
+  total_visitors?: number;
+  new_visitors_pct?: number;
+  returning_visitors_pct?: number;
+  new_sessions?: number;
+  returning_sessions?: number;
+  // MoM deltas for summary cards
+  prev_total?: number;
+  prev_working_count?: number;
+  prev_needs_push_count?: number;
+  prev_not_working_count?: number;
 }
 
-type StatusFilter = "all" | "working" | "needs_push" | "not_working";
-type SortKey = "url" | "clicks" | "avg_position" | "ctr" | "sessions" | "engagement_rate" | "url_rating" | "health_score";
+interface Keyword {
+  keyword: string;
+  avg_position: number;
+  prev_position: number;
+  impressions: number;
+  clicks: number;
+  ctr: number;
+}
+
+interface WeeklyReport {
+  metrics: {
+    label: string;
+    this_week: number;
+    last_week: number;
+    change_pct: number;
+  }[];
+  top_growing: { url: string; change: string }[];
+  declining: { url: string; change: string }[];
+  keyword_improvements: { keyword: string; change: string }[];
+  narrative: string;
+}
+
+type StatusFilter = "all" | "working" | "needs_push" | "not_working" | "top_performers";
+type SortKey = "url" | "clicks" | "avg_position" | "ctr" | "sessions" | "engagement_rate" | "url_rating" | "health_score" | "conversions";
+type TimeFrame = "7d" | "30d" | "90d" | "mom";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -79,12 +123,22 @@ function truncateUrl(url: string) {
   }
 }
 
+function deltaIndicator(current: number, previous: number | undefined) {
+  if (!previous || previous === 0) return null;
+  const pct = ((current - previous) / previous) * 100;
+  if (Math.abs(pct) < 0.5) return null;
+  return pct > 0
+    ? <span className="text-emerald-400 text-xs ml-1">+{pct.toFixed(1)}%</span>
+    : <span className="text-red-400 text-xs ml-1">{pct.toFixed(1)}%</span>;
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function SeoPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
 
+  // Core dashboard state
   const [pages, setPages] = useState<PageMetrics[]>([]);
   const [summary, setSummary] = useState<Summary>({ total: 0, working_count: 0, needs_push_count: 0, not_working_count: 0, last_synced: null });
   const [loading, setLoading] = useState(true);
@@ -95,21 +149,70 @@ export default function SeoPage() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [expandedUrl, setExpandedUrl] = useState<string | null>(null);
 
+  // Feature 1: Time Frame Toggle
+  const [timeFrame, setTimeFrame] = useState<TimeFrame>("30d");
+
+  // Feature 6: Keyword Watchlist
+  const [keywords, setKeywords] = useState<Keyword[]>([]);
+  const [newKeyword, setNewKeyword] = useState("");
+
+  // Feature 7: Weekly Report
+  const [weeklyReport, setWeeklyReport] = useState<WeeklyReport | null>(null);
+  const [showReport, setShowReport] = useState(false);
+  const [reportLoading, setReportLoading] = useState(false);
+
+  // Feature 8: AI Analysis
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysis, setAnalysis] = useState("");
+
   // ─── Data fetching ─────────────────────────────────────────────────────────
 
-  async function loadDashboard() {
+  const loadDashboard = useCallback(async () => {
     try {
       const res = await fetch("/api/seo/dashboard");
       if (res.ok) {
         const data = await res.json();
         setPages(data.pages || []);
-        setSummary(data.summary || summary);
+        setSummary(data.summary || { total: 0, working_count: 0, needs_push_count: 0, not_working_count: 0, last_synced: null });
       }
     } catch {
       // ignore
     }
     setLoading(false);
-  }
+  }, []);
+
+  const loadTimeFrameData = useCallback(async (tf: TimeFrame) => {
+    if (tf === "30d") {
+      await loadDashboard();
+      return;
+    }
+    try {
+      const days = tf === "7d" ? 7 : tf === "90d" ? 90 : 30;
+      const endpoint = tf === "mom"
+        ? "/api/seo/query?days=30&mom=true"
+        : `/api/seo/query?days=${days}`;
+      const res = await fetch(endpoint);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.pages) setPages(data.pages);
+        if (data.summary) setSummary((prev) => ({ ...prev, ...data.summary }));
+      }
+    } catch {
+      // ignore
+    }
+  }, [loadDashboard]);
+
+  const loadKeywords = useCallback(async () => {
+    try {
+      const res = await fetch("/api/seo/keywords");
+      if (res.ok) {
+        const data = await res.json();
+        setKeywords(data.keywords || []);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
 
   async function handleSync() {
     setSyncing(true);
@@ -120,7 +223,6 @@ export default function SeoPage() {
       if (!res.ok) {
         setSyncError(data.error || "Sync failed");
       }
-      // Reload dashboard data
       await loadDashboard();
     } catch {
       setSyncError("Sync request failed");
@@ -128,16 +230,87 @@ export default function SeoPage() {
     setSyncing(false);
   }
 
+  async function handleAddKeyword() {
+    const kw = newKeyword.trim();
+    if (!kw) return;
+    try {
+      const res = await fetch("/api/seo/keywords", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keyword: kw }),
+      });
+      if (res.ok) {
+        setNewKeyword("");
+        await loadKeywords();
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  async function handleRemoveKeyword(keyword: string) {
+    try {
+      await fetch(`/api/seo/keywords?keyword=${encodeURIComponent(keyword)}`, {
+        method: "DELETE",
+      });
+      await loadKeywords();
+    } catch {
+      // ignore
+    }
+  }
+
+  async function handleWeeklyReport() {
+    setReportLoading(true);
+    try {
+      const res = await fetch("/api/seo/report", { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        setWeeklyReport(data);
+        setShowReport(true);
+      }
+    } catch {
+      // ignore
+    }
+    setReportLoading(false);
+  }
+
+  async function handleAnalyze() {
+    setAnalyzing(true);
+    setAnalysis("");
+    try {
+      const res = await fetch("/api/seo/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pages: filtered }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAnalysis(data.analysis || "No analysis returned.");
+      } else {
+        setAnalysis("Analysis failed. Please try again.");
+      }
+    } catch {
+      setAnalysis("Analysis request failed.");
+    }
+    setAnalyzing(false);
+  }
+
   useEffect(() => {
     loadDashboard();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    loadKeywords();
+  }, [loadDashboard, loadKeywords]);
+
+  useEffect(() => {
+    loadTimeFrameData(timeFrame);
+  }, [timeFrame, loadTimeFrameData]);
 
   // ─── Filtering & sorting (must be before early returns for hooks rules) ───
 
   const filtered = useMemo(() => {
     let result = pages;
-    if (activeFilter !== "all") {
+    if (activeFilter === "top_performers") {
+      result = result.filter((p) => p.clicks > 10 && p.conversions > 0);
+    } else if (activeFilter !== "all") {
       result = result.filter((p) => p.status === activeFilter);
     }
     result = [...result].sort((a, b) => {
@@ -152,6 +325,15 @@ export default function SeoPage() {
     });
     return result;
   }, [pages, activeFilter, sortBy, sortDir]);
+
+  // Conversion impact computed values
+  const totalConversions = useMemo(() => pages.reduce((sum, p) => sum + (p.conversions || 0), 0), [pages]);
+  const totalSessions = useMemo(() => pages.reduce((sum, p) => sum + (p.sessions || 0), 0), [pages]);
+  const conversionRate = useMemo(() => totalSessions > 0 ? (totalConversions / totalSessions) * 100 : 0, [totalConversions, totalSessions]);
+  const topConvertingPages = useMemo(() =>
+    [...pages].filter((p) => p.conversions > 0).sort((a, b) => b.conversions - a.conversions).slice(0, 5),
+    [pages]
+  );
 
   // ─── Auth guard ────────────────────────────────────────────────────────────
 
@@ -195,6 +377,40 @@ export default function SeoPage() {
               </span>
             )}
             <button
+              onClick={handleAnalyze}
+              disabled={analyzing}
+              className="px-4 py-2 text-sm font-medium text-white bg-[#7C3AED] rounded-lg hover:bg-[#6D28D9] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              {analyzing ? (
+                <span className="inline-flex items-center gap-2">
+                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Analyzing...
+                </span>
+              ) : (
+                "Analyze"
+              )}
+            </button>
+            <button
+              onClick={handleWeeklyReport}
+              disabled={reportLoading}
+              className="px-4 py-2 text-sm font-medium text-[#7C3AED] border border-[#7C3AED] rounded-lg hover:bg-[#7C3AED]/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              {reportLoading ? (
+                <span className="inline-flex items-center gap-2">
+                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Generating...
+                </span>
+              ) : (
+                "Weekly Report"
+              )}
+            </button>
+            <button
               onClick={handleSync}
               disabled={syncing}
               className="px-4 py-2 text-sm font-medium text-white bg-[#7C3AED] rounded-lg hover:bg-[#6D28D9] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
@@ -221,33 +437,195 @@ export default function SeoPage() {
           </div>
         )}
 
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        {/* AI Analysis Results (Feature 8) */}
+        {analysis && (
+          <div className="mb-6 bg-[#1A1228] border border-[#2A2040] rounded-xl p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-purple-300">AI Analysis</h2>
+              <button
+                onClick={() => setAnalysis("")}
+                className="text-gray-500 hover:text-gray-300 text-sm"
+              >
+                Dismiss
+              </button>
+            </div>
+            <div className="text-sm text-gray-300 whitespace-pre-wrap leading-relaxed">
+              {analysis}
+            </div>
+          </div>
+        )}
+
+        {/* Weekly Report (Feature 7) */}
+        {showReport && weeklyReport && (
+          <div className="mb-6 bg-[#1A1228] border border-[#2A2040] rounded-xl p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-purple-300">Weekly Report</h2>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => window.print()}
+                  className="px-3 py-1.5 text-xs font-medium text-gray-400 border border-[#2A2040] rounded-lg hover:text-white hover:border-gray-500 transition-colors"
+                >
+                  Print
+                </button>
+                <button
+                  onClick={() => setShowReport(false)}
+                  className="text-gray-500 hover:text-gray-300 text-sm"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+
+            {/* Metrics comparison */}
+            {weeklyReport.metrics && weeklyReport.metrics.length > 0 && (
+              <div className="mb-4">
+                <h3 className="text-sm font-medium text-gray-400 mb-2">Metrics Comparison</h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {weeklyReport.metrics.map((m) => (
+                    <div key={m.label} className="bg-[#0F0A1A] rounded-lg p-3">
+                      <p className="text-xs text-gray-500 mb-1">{m.label}</p>
+                      <p className="text-lg font-bold">{m.this_week.toLocaleString()}</p>
+                      <p className="text-xs">
+                        vs {m.last_week.toLocaleString()}
+                        <span className={`ml-1 ${m.change_pct >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                          {m.change_pct >= 0 ? "+" : ""}{m.change_pct.toFixed(1)}%
+                        </span>
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Top growing pages */}
+            {weeklyReport.top_growing && weeklyReport.top_growing.length > 0 && (
+              <div className="mb-4">
+                <h3 className="text-sm font-medium text-emerald-400 mb-2">Top Growing Pages</h3>
+                <div className="space-y-1">
+                  {weeklyReport.top_growing.map((p) => (
+                    <div key={p.url} className="flex items-center justify-between text-sm">
+                      <span className="text-gray-300 truncate max-w-[70%]">{truncateUrl(p.url)}</span>
+                      <span className="text-emerald-400 text-xs">{p.change}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Declining pages */}
+            {weeklyReport.declining && weeklyReport.declining.length > 0 && (
+              <div className="mb-4">
+                <h3 className="text-sm font-medium text-red-400 mb-2">Declining Pages</h3>
+                <div className="space-y-1">
+                  {weeklyReport.declining.map((p) => (
+                    <div key={p.url} className="flex items-center justify-between text-sm">
+                      <span className="text-gray-300 truncate max-w-[70%]">{truncateUrl(p.url)}</span>
+                      <span className="text-red-400 text-xs">{p.change}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Keyword improvements */}
+            {weeklyReport.keyword_improvements && weeklyReport.keyword_improvements.length > 0 && (
+              <div className="mb-4">
+                <h3 className="text-sm font-medium text-purple-300 mb-2">Keyword Improvements</h3>
+                <div className="space-y-1">
+                  {weeklyReport.keyword_improvements.map((k) => (
+                    <div key={k.keyword} className="flex items-center justify-between text-sm">
+                      <span className="text-gray-300">{k.keyword}</span>
+                      <span className="text-emerald-400 text-xs">{k.change}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Claude narrative */}
+            {weeklyReport.narrative && (
+              <div className="mt-4 pt-4 border-t border-[#2A2040]">
+                <h3 className="text-sm font-medium text-gray-400 mb-2">Summary</h3>
+                <p className="text-sm text-gray-300 whitespace-pre-wrap leading-relaxed">{weeklyReport.narrative}</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Time Frame Toggle (Feature 1) */}
+        <div className="flex items-center gap-1 mb-6 bg-[#1A1228] border border-[#2A2040] rounded-lg p-1 w-fit">
+          {([
+            { key: "7d" as TimeFrame, label: "7 Days" },
+            { key: "30d" as TimeFrame, label: "30 Days" },
+            { key: "90d" as TimeFrame, label: "90 Days" },
+            { key: "mom" as TimeFrame, label: "MoM" },
+          ]).map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => setTimeFrame(key)}
+              className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                timeFrame === key
+                  ? "bg-[#7C3AED] text-white"
+                  : "text-gray-400 hover:text-white hover:bg-[#2A2040]"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Summary Cards (5 cards, Feature 2) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
           <div className="bg-[#1A1228] border border-[#2A2040] rounded-xl p-5">
             <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Total Pages</p>
-            <p className="text-2xl font-bold">{summary.total}</p>
+            <p className="text-2xl font-bold">
+              {summary.total}
+              {timeFrame === "mom" && deltaIndicator(summary.total, summary.prev_total)}
+            </p>
           </div>
           <div className="bg-[#1A1228] border border-[#2A2040] rounded-xl p-5">
             <p className="text-xs text-emerald-400 uppercase tracking-wide mb-1">Working</p>
-            <p className="text-2xl font-bold text-emerald-400">{summary.working_count}</p>
+            <p className="text-2xl font-bold text-emerald-400">
+              {summary.working_count}
+              {timeFrame === "mom" && deltaIndicator(summary.working_count, summary.prev_working_count)}
+            </p>
           </div>
           <div className="bg-[#1A1228] border border-[#2A2040] rounded-xl p-5">
             <p className="text-xs text-amber-400 uppercase tracking-wide mb-1">Needs Attention</p>
-            <p className="text-2xl font-bold text-amber-400">{summary.needs_push_count}</p>
+            <p className="text-2xl font-bold text-amber-400">
+              {summary.needs_push_count}
+              {timeFrame === "mom" && deltaIndicator(summary.needs_push_count, summary.prev_needs_push_count)}
+            </p>
           </div>
           <div className="bg-[#1A1228] border border-[#2A2040] rounded-xl p-5">
             <p className="text-xs text-red-400 uppercase tracking-wide mb-1">Not Working</p>
-            <p className="text-2xl font-bold text-red-400">{summary.not_working_count}</p>
+            <p className="text-2xl font-bold text-red-400">
+              {summary.not_working_count}
+              {timeFrame === "mom" && deltaIndicator(summary.not_working_count, summary.prev_not_working_count)}
+            </p>
+          </div>
+          {/* Feature 2: New vs Returning Visitors Card */}
+          <div className="bg-[#1A1228] border border-[#2A2040] rounded-xl p-5">
+            <p className="text-xs text-purple-400 uppercase tracking-wide mb-1">Visitors</p>
+            <p className="text-sm font-bold">
+              <span className="text-emerald-400">New: {(summary.new_visitors_pct ?? 0).toFixed(1)}%</span>
+              <span className="text-gray-500 mx-2">|</span>
+              <span className="text-blue-400">Returning: {(summary.returning_visitors_pct ?? 0).toFixed(1)}%</span>
+            </p>
+            <p className="text-xs text-gray-500 mt-1">
+              {(summary.new_sessions ?? 0).toLocaleString()} new / {(summary.returning_sessions ?? 0).toLocaleString()} returning
+            </p>
           </div>
         </div>
 
-        {/* Filter Tabs */}
+        {/* Filter Tabs (updated with Top Performers) */}
         <div className="flex items-center gap-1 mb-6 bg-[#1A1228] border border-[#2A2040] rounded-lg p-1 w-fit">
           {([
             { key: "all" as StatusFilter, label: "All" },
             { key: "working" as StatusFilter, label: "Working" },
             { key: "needs_push" as StatusFilter, label: "Needs Push" },
             { key: "not_working" as StatusFilter, label: "Not Working" },
+            { key: "top_performers" as StatusFilter, label: "Top Performers" },
           ]).map(({ key, label }) => (
             <button
               key={key}
@@ -263,7 +641,7 @@ export default function SeoPage() {
           ))}
         </div>
 
-        {/* Data Table */}
+        {/* Data Table (Feature 3: added Conv column) */}
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <svg className="animate-spin h-6 w-6 text-purple-400" viewBox="0 0 24 24">
@@ -303,6 +681,7 @@ export default function SeoPage() {
                       { key: "ctr" as SortKey, label: "CTR", width: "" },
                       { key: "sessions" as SortKey, label: "Sessions", width: "" },
                       { key: "engagement_rate" as SortKey, label: "Eng Rate", width: "" },
+                      { key: "conversions" as SortKey, label: "Conv", width: "" },
                       { key: "url_rating" as SortKey, label: "UR", width: "" },
                       { key: "health_score" as SortKey, label: "Score", width: "" },
                     ]).map(({ key, label, width }) => (
@@ -321,9 +700,8 @@ export default function SeoPage() {
                 </thead>
                 <tbody>
                   {filtered.map((page) => (
-                    <>
+                    <Fragment key={page.url}>
                       <tr
-                        key={page.url}
                         onClick={() => setExpandedUrl(expandedUrl === page.url ? null : page.url)}
                         className="border-b border-[#2A2040] hover:bg-[#2A2040]/50 cursor-pointer transition-colors"
                       >
@@ -332,11 +710,30 @@ export default function SeoPage() {
                             {truncateUrl(page.url)}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-gray-300 tabular-nums">{page.clicks.toLocaleString()}</td>
-                        <td className="px-4 py-3 text-gray-300 tabular-nums">{page.avg_position.toFixed(1)}</td>
-                        <td className="px-4 py-3 text-gray-300 tabular-nums">{(page.ctr * 100).toFixed(1)}%</td>
-                        <td className="px-4 py-3 text-gray-300 tabular-nums">{page.sessions.toLocaleString()}</td>
-                        <td className="px-4 py-3 text-gray-300 tabular-nums">{(page.engagement_rate * 100).toFixed(1)}%</td>
+                        <td className="px-4 py-3 text-gray-300 tabular-nums">
+                          {page.clicks.toLocaleString()}
+                          {timeFrame === "mom" && deltaIndicator(page.clicks, page.prev_clicks)}
+                        </td>
+                        <td className="px-4 py-3 text-gray-300 tabular-nums">
+                          {page.avg_position.toFixed(1)}
+                          {timeFrame === "mom" && deltaIndicator(page.avg_position, page.prev_avg_position)}
+                        </td>
+                        <td className="px-4 py-3 text-gray-300 tabular-nums">
+                          {(page.ctr * 100).toFixed(1)}%
+                          {timeFrame === "mom" && deltaIndicator(page.ctr, page.prev_ctr)}
+                        </td>
+                        <td className="px-4 py-3 text-gray-300 tabular-nums">
+                          {page.sessions.toLocaleString()}
+                          {timeFrame === "mom" && deltaIndicator(page.sessions, page.prev_sessions)}
+                        </td>
+                        <td className="px-4 py-3 text-gray-300 tabular-nums">
+                          {(page.engagement_rate * 100).toFixed(1)}%
+                          {timeFrame === "mom" && deltaIndicator(page.engagement_rate, page.prev_engagement_rate)}
+                        </td>
+                        <td className="px-4 py-3 text-gray-300 tabular-nums">
+                          {(page.conversions || 0).toLocaleString()}
+                          {timeFrame === "mom" && deltaIndicator(page.conversions || 0, page.prev_conversions)}
+                        </td>
                         <td className="px-4 py-3 text-gray-300 tabular-nums">{page.url_rating}</td>
                         <td className="px-4 py-3 tabular-nums">
                           <span className={`font-medium ${
@@ -352,8 +749,8 @@ export default function SeoPage() {
 
                       {/* Expanded detail row */}
                       {expandedUrl === page.url && (
-                        <tr key={`${page.url}-detail`} className="border-b border-[#2A2040]">
-                          <td colSpan={9} className="px-6 py-4 bg-[#0F0A1A]">
+                        <tr className="border-b border-[#2A2040]">
+                          <td colSpan={10} className="px-6 py-4 bg-[#0F0A1A]">
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
                               <div>
                                 <p className="text-gray-500 mb-0.5">Full URL</p>
@@ -373,11 +770,23 @@ export default function SeoPage() {
                                 <p className="text-gray-500 mb-0.5">Synced At</p>
                                 <p className="text-gray-300">{new Date(page.synced_at).toLocaleString()}</p>
                               </div>
+                              <div>
+                                <p className="text-gray-500 mb-0.5">Conversions</p>
+                                <p className="text-gray-300">{(page.conversions || 0).toLocaleString()}</p>
+                              </div>
+                              <div>
+                                <p className="text-gray-500 mb-0.5">New Users</p>
+                                <p className="text-gray-300">{(page.new_users || 0).toLocaleString()}</p>
+                              </div>
+                              <div>
+                                <p className="text-gray-500 mb-0.5">Returning Users</p>
+                                <p className="text-gray-300">{(page.returning_users || 0).toLocaleString()}</p>
+                              </div>
                             </div>
                           </td>
                         </tr>
                       )}
-                    </>
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
@@ -389,6 +798,151 @@ export default function SeoPage() {
             </div>
           </div>
         )}
+
+        {/* Feature 4: Conversion Impact Section */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
+          <div className="bg-[#1A1228] border border-[#2A2040] rounded-xl p-5">
+            <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Organic Demos</p>
+            <p className="text-2xl font-bold text-purple-400">{totalConversions.toLocaleString()}</p>
+            <p className="text-xs text-gray-500 mt-1">Total conversions across all pages</p>
+          </div>
+          <div className="bg-[#1A1228] border border-[#2A2040] rounded-xl p-5">
+            <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Conversion Rate</p>
+            <p className="text-2xl font-bold text-purple-400">{conversionRate.toFixed(2)}%</p>
+            <p className="text-xs text-gray-500 mt-1">{totalConversions.toLocaleString()} conversions / {totalSessions.toLocaleString()} sessions</p>
+          </div>
+          <div className="bg-[#1A1228] border border-[#2A2040] rounded-xl p-5">
+            <p className="text-xs text-gray-500 uppercase tracking-wide mb-2">Top Converting Pages</p>
+            {topConvertingPages.length === 0 ? (
+              <p className="text-xs text-gray-500">No conversions recorded yet</p>
+            ) : (
+              <div className="space-y-2">
+                {topConvertingPages.map((p) => (
+                  <div key={p.url} className="flex items-center justify-between text-xs">
+                    <span className="text-gray-300 truncate max-w-[65%]" title={p.url}>{truncateUrl(p.url)}</span>
+                    <span className="text-purple-400 font-medium">{p.conversions}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Feature 5: AI Search Visibility Placeholder */}
+        <div className="mt-8">
+          <div className="bg-[#1A1228] border border-[#2A2040] rounded-xl p-6">
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold">AI Search Visibility</h2>
+              <p className="text-sm text-gray-500 mt-1">AI citation tracking coming soon</p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-[#2A2040]">
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Query</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Mentioned</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Source</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Last Checked</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td colSpan={4} className="px-4 py-12 text-center">
+                      <div className="border-2 border-dashed border-[#2A2040] rounded-lg py-8 px-4">
+                        <p className="text-gray-500 text-sm">No AI search data available yet.</p>
+                        <p className="text-gray-600 text-xs mt-1">This feature will track when your content is cited by AI search engines.</p>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        {/* Feature 6: Keyword Watchlist */}
+        <div className="mt-8">
+          <div className="bg-[#1A1228] border border-[#2A2040] rounded-xl p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold">Keyword Watchlist</h2>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={newKeyword}
+                  onChange={(e) => setNewKeyword(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleAddKeyword(); }}
+                  placeholder="Add keyword..."
+                  className="px-3 py-1.5 text-sm bg-[#0F0A1A] border border-[#2A2040] rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-[#7C3AED] transition-colors"
+                />
+                <button
+                  onClick={handleAddKeyword}
+                  className="px-4 py-1.5 text-sm font-medium text-white bg-[#7C3AED] rounded-lg hover:bg-[#6D28D9] transition-colors"
+                >
+                  Add
+                </button>
+              </div>
+            </div>
+
+            {keywords.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-gray-500 text-sm">No keywords tracked yet. Add a keyword to start monitoring its position.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-[#2A2040]">
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wide">Keyword</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wide">Position</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wide">Prev Pos</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wide">Change</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wide">Impressions</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wide">Clicks</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wide">CTR</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wide"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {keywords.map((kw) => {
+                      const change = kw.prev_position - kw.avg_position;
+                      return (
+                        <tr key={kw.keyword} className="border-b border-[#2A2040] hover:bg-[#2A2040]/50 transition-colors">
+                          <td className="px-4 py-3 text-gray-300 font-medium">{kw.keyword}</td>
+                          <td className="px-4 py-3 text-gray-300 tabular-nums">{kw.avg_position.toFixed(1)}</td>
+                          <td className="px-4 py-3 text-gray-300 tabular-nums">{kw.prev_position.toFixed(1)}</td>
+                          <td className="px-4 py-3 tabular-nums">
+                            {change > 0 ? (
+                              <span className="text-emerald-400">
+                                <span className="mr-0.5">&#9650;</span>{change.toFixed(1)}
+                              </span>
+                            ) : change < 0 ? (
+                              <span className="text-red-400">
+                                <span className="mr-0.5">&#9660;</span>{Math.abs(change).toFixed(1)}
+                              </span>
+                            ) : (
+                              <span className="text-gray-500">-</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-gray-300 tabular-nums">{kw.impressions.toLocaleString()}</td>
+                          <td className="px-4 py-3 text-gray-300 tabular-nums">{kw.clicks.toLocaleString()}</td>
+                          <td className="px-4 py-3 text-gray-300 tabular-nums">{(kw.ctr * 100).toFixed(1)}%</td>
+                          <td className="px-4 py-3">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleRemoveKeyword(kw.keyword); }}
+                              className="text-gray-500 hover:text-red-400 transition-colors text-xs"
+                            >
+                              Remove
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

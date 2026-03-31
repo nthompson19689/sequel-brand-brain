@@ -1,5 +1,6 @@
 import { readFileSync } from "fs";
 import path from "path";
+import { google } from "googleapis";
 
 interface ServiceAccountCredentials {
   type: string;
@@ -39,4 +40,20 @@ export function getServiceAccountCredentials(): ServiceAccountCredentials {
 
   const fileContents = readFileSync(filePath, "utf-8");
   return JSON.parse(fileContents);
+}
+
+/**
+ * Get a Google JWT auth client for GSC + GA4 API calls.
+ * Shared across sync, query, keywords, and report routes.
+ */
+export function getGoogleAuth() {
+  const creds = getServiceAccountCredentials();
+  return new google.auth.JWT({
+    email: creds.client_email,
+    key: creds.private_key,
+    scopes: [
+      "https://www.googleapis.com/auth/webmasters.readonly",
+      "https://www.googleapis.com/auth/analytics.readonly",
+    ],
+  });
 }
