@@ -240,6 +240,7 @@ export async function POST() {
 
   try {
     console.log("SEO Sync: starting...");
+    console.log(`SEO Sync: GSC_SITE_URL=${process.env.GSC_SITE_URL}, GA4_PROPERTY_ID=${process.env.GA4_PROPERTY_ID}, AHREFS_API_KEY=${process.env.AHREFS_API_KEY ? "set" : "NOT SET"}`);
     const auth = getGoogleAuth();
 
     // 1. Fetch GSC data
@@ -252,10 +253,19 @@ export async function POST() {
     const ga4Map = new Map<string, Ga4Row>();
     try {
       const ga4Data = await fetchGa4Data(auth);
-      const siteUrl = (process.env.GSC_SITE_URL || "").replace(/\/$/, "");
+      // GSC URLs are full URLs like https://sequel.io/post/foo
+      // GA4 pagePaths are like /post/foo
+      // Build the base domain from GSC URLs (not from GSC_SITE_URL which may be sc-domain:)
+      const sampleUrl = gscData[0]?.url || "";
+      const urlMatch = sampleUrl.match(/^(https?:\/\/[^/]+)/);
+      const baseDomain = urlMatch ? urlMatch[1] : "https://sequel.io";
+      console.log(`SEO Sync: using base domain ${baseDomain} for GA4 URL matching`);
+
       for (const row of ga4Data) {
-        const fullUrl = siteUrl + row.pagePath;
+        // Match by path — store both with and without trailing slash
+        const fullUrl = baseDomain + row.pagePath;
         ga4Map.set(fullUrl, row);
+        ga4Map.set(fullUrl.replace(/\/$/, ""), row);
       }
     } catch (err) {
       console.warn("SEO Sync: GA4 fetch failed, continuing without GA4 data:", err);
