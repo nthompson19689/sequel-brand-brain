@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useState, useMemo, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "next/navigation";
+import { markdownToHtml } from "@/lib/markdown-to-html";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -449,9 +450,10 @@ export default function SeoPage() {
                 Dismiss
               </button>
             </div>
-            <div className="text-sm text-gray-300 whitespace-pre-wrap leading-relaxed">
-              {analysis}
-            </div>
+            <div
+              className="text-sm text-gray-300 leading-relaxed prose prose-invert prose-sm max-w-none prose-headings:text-purple-300 prose-strong:text-white prose-li:text-gray-300 prose-p:text-gray-300"
+              dangerouslySetInnerHTML={{ __html: markdownToHtml(analysis) }}
+            />
           </div>
         )}
 
