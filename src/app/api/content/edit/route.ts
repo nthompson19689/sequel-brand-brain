@@ -119,8 +119,11 @@ export async function POST(request: Request) {
 
   // Dynamic token cap for Call 2 (clean article output).
   // Call 1 is now a compact edit list (capped at 4096).
-  const draftWordCount = wordCount || (draft ? draft.split(/\s+/).length : 2000);
-  const call2TokenCap = Math.max(8192, Math.round(draftWordCount * 2.5));
+  // Cap is based on the TARGET word count, not the draft length — this prevents
+  // the editor from reproducing a bloated draft verbatim. If the draft is 3200
+  // words but the target is 1200, the editor only gets enough tokens for ~1200.
+  const targetWC = wordCount || 1500;
+  const call2TokenCap = Math.max(2048, Math.round(targetWC * 1.8));
 
   // Block 1: brand docs (CACHED, same as all routes)
   // Block 2: writing standards + Nathan style guide (CACHED, same as brief/write)
@@ -275,6 +278,14 @@ ${draft}`,
           message: "Call 2/2 — Producing clean final version...",
         });
 
+        // Calculate word count enforcement for editor
+        const currentDraftWords = draft ? draft.split(/\s+/).length : 0;
+        const targetWC = wordCount || 1500;
+        const isOverTarget = currentDraftWords > Math.round(targetWC * 1.1);
+        const wordCountDirective = isOverTarget
+          ? `\n\n⚠️ WORD COUNT ENFORCEMENT — HIGHEST PRIORITY ⚠️\nThe draft is ${currentDraftWords} words but the target is ${targetWC} words (±10% = ${Math.round(targetWC * 0.9)}-${Math.round(targetWC * 1.1)}). The draft is ${currentDraftWords - targetWC} words OVER. You MUST cut it down to within the ${Math.round(targetWC * 0.9)}-${Math.round(targetWC * 1.1)} range.\n\nHow to cut:\n- Remove the weakest H2 section entirely if needed\n- Collapse redundant examples (one strong example > three weak ones)\n- Tighten data sections and cut padding\n- Shorten FAQ answers to 2-3 sentences each\n- Cut setup/warmup sentences that delay the point\n- Reduce number of FAQ questions if over 5\n- DO NOT cut internal links, external citations, or personality/voice\n- After cutting, count your words. If still over ${Math.round(targetWC * 1.1)}, cut more.`
+          : "";
+
         const call3Blocks = [
           ...baseBlocks,
           {
@@ -294,6 +305,7 @@ RULES:
 10. FAQ section: ## FAQ heading, ### H3 per question (plain text, no numbers/bold), prose answers.
 11. At least 2 sections with 400+ words of sustained prose.
 12. Primary keyword in H1, first 100 words, and at least 2 H2s.
+13. WORD COUNT TARGET: ${targetWC} words (±10% = ${Math.round(targetWC * 0.9)}-${Math.round(targetWC * 1.1)}). The final output MUST be within this range.${wordCountDirective}
 
 Output: the COMPLETE final article ONLY. No commentary, no edit markers, no meta text.`,
           },

@@ -128,12 +128,18 @@ Output: META: [description] then SLUG: [MUST be the exact primary keyword hyphen
 
         send({ type: "status", stage: "write", message: "Generating draft..." });
 
+        // Token cap based on target word count — prevents model from blowing past target.
+        // ~1.5 tokens per word with modest floor for markdown overhead.
+        const writeTokenCap = Math.max(2048, Math.round(wordCount * 1.5));
+        const minWords = Math.round(wordCount * 0.9);
+        const maxWords = Math.round(wordCount * 1.1);
+
         let draftContent = "";
         const writeStream = await claude.messages.stream({
           model: resolveModel("claude-opus-4-6"),
-          max_tokens: MAX_TOKENS * 2,
+          max_tokens: writeTokenCap,
           system: writeBlocks,
-          messages: [{ role: "user", content: `Write the full article based on this brief. Target: ${wordCount} words. Each internal link URL must appear ONLY ONCE.\n\nSLUG RULE: The SLUG must be the exact primary keyword with spaces replaced by hyphens. Keyword "${keyword}" → SLUG: "${keyword.replace(/\s+/g, '-').toLowerCase()}". No creative slugs.\n\n${briefContent}` }],
+          messages: [{ role: "user", content: `⚠️ WORD COUNT TARGET: ${wordCount} words (acceptable range: ${minWords}-${maxWords}). This is a HARD constraint.\n\nWrite the full article based on this brief. Each internal link URL must appear ONLY ONCE.\n\nSLUG RULE: The SLUG must be the exact primary keyword with spaces replaced by hyphens. Keyword "${keyword}" → SLUG: "${keyword.replace(/\s+/g, '-').toLowerCase()}". No creative slugs.\n\nPLAN FIRST: Before writing, plan your H2 sections and allocate a word budget to each. The total must add up to ${wordCount}. If you approach ${maxWords} words, wrap up immediately.\n\n${briefContent}` }],
         });
 
         for await (const event of writeStream) {
@@ -207,13 +213,20 @@ Output: META: [description] then SLUG: [MUST be the exact primary keyword hyphen
         logCachePerformance("/api/content/batch[edit-c2]", call2.usage);
         const c2Text = call2.content.filter((b) => b.type === "text").map((b) => (b as { type: "text"; text: string }).text).join("");
 
-        // Call 3: Clean (streamed)
+        // Call 3: Clean (streamed) — token cap enforces word count target
+        const editTokenCap = Math.max(2048, Math.round(wordCount * 1.8));
+        const currentDraftWords = draftContent.split(/\s+/).length;
+        const isOverTarget = currentDraftWords > maxWords;
+        const wordCutDirective = isOverTarget
+          ? ` The draft is ${currentDraftWords} words but target is ${wordCount} (${minWords}-${maxWords}). CUT ${currentDraftWords - wordCount} words: remove weakest sections, tighten prose, shorten FAQ. DO NOT cut links or voice.`
+          : "";
+
         send({ type: "status", stage: "edit", message: "Edit call 3/3 — Clean final version..." });
         let cleanDraft = "";
         const editStream = await claude.messages.stream({
           model: resolveModel("claude-sonnet-4-6"),
-          max_tokens: MAX_TOKENS * 2,
-          system: [...editBlocks, { type: "text" as const, text: "Final clean article. Implement ALL edits. ZERO em dashes, colons in headings, banned patterns. Each URL linked ONLY ONCE. Output: clean article only." }],
+          max_tokens: editTokenCap,
+          system: [...editBlocks, { type: "text" as const, text: `Final clean article. Implement ALL edits. ZERO em dashes, colons in headings, banned patterns. Each URL linked ONLY ONCE. WORD COUNT TARGET: ${wordCount} words (${minWords}-${maxWords}).${wordCutDirective} Output: clean article only.` }],
           messages: [{ role: "user", content: `Final clean version:\n\n${c2Text}` }],
         });
 

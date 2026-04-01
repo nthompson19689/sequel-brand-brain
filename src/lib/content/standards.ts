@@ -264,13 +264,14 @@ export function runQualityGates(
   const dupes = Array.from(urlMap.entries()).filter(([, c]) => c > 1);
   gates.push({ name: "No Duplicate Links", passed: dupes.length === 0, detail: dupes.length === 0 ? "Clean" : `${dupes.length} duplicated URLs` });
 
-  // Word count
+  // Word count — must be within ±10% of target
   if (targetWordCount) {
     const pct = (wordCount / targetWordCount) * 100;
+    const withinRange = pct >= 90 && pct <= 110;
     gates.push({
-      name: `Word Count >= 90% of ${targetWordCount}`,
-      passed: pct >= 90,
-      detail: `${wordCount} words (${pct.toFixed(0)}%)`,
+      name: `Word Count ±10% of ${targetWordCount}`,
+      passed: withinRange,
+      detail: `${wordCount} words (${pct.toFixed(0)}%)${pct > 110 ? ` — ${wordCount - targetWordCount} words OVER target` : pct < 90 ? ` — ${targetWordCount - wordCount} words UNDER target` : ""}`,
     });
   }
 
