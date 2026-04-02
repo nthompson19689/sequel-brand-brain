@@ -208,19 +208,22 @@ ${contentType === "listicle" ? "**LISTICLE RULE:** The H1 must include the numbe
 - **Promise:** [exactly what the reader will walk away with]
 - **Transition:** [bridge to the first section]
 
-[For each H2 section, use this format:]
+[For each H2 section, use this format. The writer will follow this outline EXACTLY, so be specific:]
 
 ### H2: [Section Title, descriptive, keyword-aware, NO colons]
 - **Core argument:** [one sentence: what is the POINT of this section?]
+- **H3 subsections:** [list specific H3 headings if this section needs them. Any section over 300 words should have at least one H3. Write the exact H3 titles the writer should use.]
 - **Must include:** [specific examples, data points from the table above, or frameworks required]
 - **Sequel angle:** [how does this connect to what Sequel does or believes?]
 - **Word count:** [target for this section, all section targets must sum to ${targetWC}]
 
-[Provide the full outline with ALL H2 sections. Typical counts:
+[Provide the full outline with ALL H2 sections and their H3 subsections. The writer will use these headings verbatim.
+Typical H2 counts:
 - Under 1,500 words: 3-4 H2 sections
 - 1,500-2,000 words: 4-5 H2 sections
 - 2,000-3,000 words: 5-7 H2 sections
-- Over 3,000 words: 6-8+ H2 sections]
+- Over 3,000 words: 6-8+ H2 sections
+For listicles: cap at 7-9 items for instructional posts. Each item is its own H2.]
 
 ### Conclusion (100-150 words)
 - **Summary approach:** [recap key points | call to action | forward-looking statement]

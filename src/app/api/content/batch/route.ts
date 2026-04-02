@@ -122,12 +122,14 @@ Use this EXACT format:
 ### Introduction (100-150 words)
 - Hook, Context, Promise, Transition
 
-[For each H2:]
+[For each H2 — writer follows this outline EXACTLY:]
 ### H2: [Section Title, no colons]
 - **Core argument:** [one sentence]
+- **H3 subsections:** [list specific H3 headings if section > 300 words]
 - **Must include:** [specifics, data, frameworks]
 - **Sequel angle:** [connection to Sequel]
 - **Word count:** [section target, all must sum to ${wordCount}]
+[For listicles: cap at 7-9 items. Each item is its own H2.]
 
 ### Conclusion (100-150 words)
 - Summary approach + CTA
