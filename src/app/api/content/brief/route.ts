@@ -3,7 +3,7 @@ import { getSupabaseServerClient } from "@/lib/supabase";
 import { buildSystemBlocks, logCachePerformance } from "@/lib/brand-context";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 const BRIEF_SYSTEM = `You are a senior SEO content strategist building a brief for a writer. Your job is to research the keyword, analyze the SERPs, and produce a brief so specific that any competent writer could execute it without guessing.
 

@@ -4,7 +4,7 @@ import { buildSystemBlocks, logCachePerformance } from "@/lib/brand-context";
 import { WRITER_SYSTEM } from "@/lib/content/prompts";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 export async function POST(request: Request) {
   const { postId, brief, wordCount } = await request.json();
