@@ -8,7 +8,10 @@ export function getClaudeClient(): Anthropic {
     if (!apiKey) {
       throw new Error("Missing ANTHROPIC_API_KEY environment variable");
     }
-    client = new Anthropic({ apiKey });
+    client = new Anthropic({
+      apiKey,
+      timeout: 10 * 60 * 1000, // 10 minutes — prevents premature timeout on long operations
+    });
   }
   return client;
 }
