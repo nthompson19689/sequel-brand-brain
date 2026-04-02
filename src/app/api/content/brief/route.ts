@@ -1,4 +1,4 @@
-import { getClaudeClient, MAX_TOKENS, resolveModel } from "@/lib/claude";
+import { getClaudeClient, resolveModel } from "@/lib/claude";
 import { getSupabaseServerClient } from "@/lib/supabase";
 import { buildSystemBlocks, logCachePerformance } from "@/lib/brand-context";
 
