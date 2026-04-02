@@ -184,7 +184,7 @@ Use this EXACT format:
         send({ type: "status", stage: "write", message: "Generating draft..." });
 
         // Same token cap as standalone write route
-        const writeTokenCap = Math.max(4096, Math.round(wordCount * 2.5));
+        const writeTokenCap = 16384;
 
         // Same user message construction as standalone write route
         const target = wordCount;
@@ -263,7 +263,7 @@ ${briefContent}`,
 
         // Same token cap as standalone edit route — based on TARGET, not draft length
         const editTargetWC = wordCount;
-        const editTokenCap = Math.max(4096, Math.round(editTargetWC * 2.5));
+        const editTokenCap = 16384;
 
         // Pre-scan with regex (same as standalone edit route)
         send({ type: "status", stage: "edit", message: "Scanning for banned patterns..." });

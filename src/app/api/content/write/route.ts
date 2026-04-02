@@ -31,12 +31,10 @@ export async function POST(request: Request) {
       try {
         send({ type: "status", step: "writing", message: "Writing draft with Opus..." });
 
-        // Token budget: ~1.3 tokens per word + headroom for markdown formatting,
-        // links, headings, and structural elements. Must be large enough for the
-        // model to COMPLETE the article — word count enforcement comes from the
-        // prompt, not from token starvation (which causes mid-sentence truncation).
-        // 2.5x multiplier with 4096 floor gives comfortable headroom.
-        const tokenCap = Math.max(4096, Math.round((wordCount || 1500) * 2.5));
+        // Token budget: generous ceiling so the model never truncates mid-article.
+        // Word count enforcement comes from the prompt, not the token cap.
+        // max_tokens is just a buffer — the model stops when it's done writing.
+        const tokenCap = 16384;
         const stream = await claude.messages.stream({
           model: resolveModel("claude-opus-4-6"),
           max_tokens: tokenCap,
