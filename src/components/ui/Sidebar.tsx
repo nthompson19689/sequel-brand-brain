@@ -38,6 +38,16 @@ const navItems = [
     ),
   },
   {
+    name: "Refresh",
+    href: "/refresh",
+    shared: true,
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182" />
+      </svg>
+    ),
+  },
+  {
     name: "Decks",
     href: "/decks",
     shared: false,
@@ -215,32 +225,17 @@ export default function Sidebar() {
         {navItems.filter((i) => i.shared).map((item) => {
           const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
           return (
-            <div key={item.href}>
-              <Link
-                href={item.href}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all relative ${
-                  isActive ? "bg-brand-500/15 text-white" : "text-[#A09CB0] hover:bg-[#1A1228] hover:text-white"
-                }`}
-              >
-                {isActive && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-brand-500 rounded-r-full" />}
-                <span className={isActive ? "text-brand-400" : ""}>{item.icon}</span>
-                {item.name}
-              </Link>
-              {/* Sub-nav for Content */}
-              {item.href === "/content" && (pathname === "/content" || pathname?.startsWith("/content/")) && (
-                <Link
-                  href="/content/refresh"
-                  className={`flex items-center gap-2 ml-8 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                    pathname === "/content/refresh" ? "text-white bg-brand-500/10" : "text-[#6B6680] hover:text-[#A09CB0]"
-                  }`}
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182" />
-                  </svg>
-                  Refresh
-                </Link>
-              )}
-            </div>
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all relative ${
+                isActive ? "bg-brand-500/15 text-white" : "text-[#A09CB0] hover:bg-[#1A1228] hover:text-white"
+              }`}
+            >
+              {isActive && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-brand-500 rounded-r-full" />}
+              <span className={isActive ? "text-brand-400" : ""}>{item.icon}</span>
+              {item.name}
+            </Link>
           );
         })}
       </nav>
