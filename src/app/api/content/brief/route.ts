@@ -84,7 +84,7 @@ export async function POST(request: Request) {
           model: resolveModel("claude-sonnet-4-6"),
           max_tokens: 16384,
           system: systemBlocks,
-          tools: [{ type: "web_search_20250305" as const, name: "web_search", max_uses: 10 }],
+          tools: [{ type: "web_search_20250305" as const, name: "web_search", max_uses: 3 }],
           messages: [{ role: "user", content: `You are researching the keyword "${keyword}" to build a content brief. Complete ALL of these research tasks:
 
 1. SERP ANALYSIS: Search "${keyword}" and analyze the top 5-7 ranking pages. For each, note:

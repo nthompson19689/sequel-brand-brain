@@ -46,7 +46,7 @@ export async function POST(request: Request) {
           model: resolveModel("claude-sonnet-4-6"),
           max_tokens: 16384,
           system: briefBlocks,
-          tools: [{ type: "web_search_20250305" as const, name: "web_search", max_uses: 10 }],
+          tools: [{ type: "web_search_20250305" as const, name: "web_search", max_uses: 3 }],
           messages: [{ role: "user", content: `Research "${keyword}" for a content brief. Complete ALL tasks:
 
 1. SERP ANALYSIS: Search "${keyword}", analyze top 5-7 pages. For each: title, URL, H2 headings, word count, content type, unique angles, strengths vs. weaknesses.
