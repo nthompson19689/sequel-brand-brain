@@ -130,7 +130,7 @@ Use this EXACT format:
 - **Must include:** [specifics, data, frameworks]
 - **Sequel angle:** [connection to Sequel]
 - **Word count:** [section target, all must sum to ${wordCount}]
-[No two consecutive sections may share the same format. Use at least 3 different formats. At least 2 must be "deep dive prose." For listicles: cap at 7-9 items.]
+[No two consecutive sections may share the same format. Use at least 3 different formats. At least 2 must be "deep dive prose." HARD RULE FOR LISTICLES: MAXIMUM 9 items. Never outline more than 9.]
 
 ### Conclusion (100-150 words)
 - Summary approach + CTA
@@ -184,7 +184,7 @@ Use this EXACT format:
         send({ type: "status", stage: "write", message: "Generating draft..." });
 
         // Same token cap as standalone write route
-        const writeTokenCap = Math.max(2048, Math.round(wordCount * 1.5));
+        const writeTokenCap = Math.max(4096, Math.round(wordCount * 2.5));
 
         // Same user message construction as standalone write route
         const target = wordCount;
@@ -263,7 +263,7 @@ ${briefContent}`,
 
         // Same token cap as standalone edit route — based on TARGET, not draft length
         const editTargetWC = wordCount;
-        const editTokenCap = Math.max(2048, Math.round(editTargetWC * 1.8));
+        const editTokenCap = Math.max(4096, Math.round(editTargetWC * 2.5));
 
         // Pre-scan with regex (same as standalone edit route)
         send({ type: "status", stage: "edit", message: "Scanning for banned patterns..." });

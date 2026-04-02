@@ -41,7 +41,7 @@ export async function POST(request: Request) {
   // the editor from reproducing a bloated draft verbatim. If the draft is 3200
   // words but the target is 1200, the editor only gets enough tokens for ~1200.
   const targetWC = wordCount || 1500;
-  const call2TokenCap = Math.max(2048, Math.round(targetWC * 1.8));
+  const call2TokenCap = Math.max(4096, Math.round(targetWC * 2.5));
 
   // Block 1: brand docs (CACHED, same as all routes)
   // Block 2: writing standards + Nathan style guide (CACHED, same as brief/write)
