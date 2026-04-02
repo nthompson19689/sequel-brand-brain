@@ -42,7 +42,7 @@ export async function POST(request: Request) {
         // Multi-query SERP research
         send({ type: "status", stage: "brief", message: "Researching SERP landscape, long-tail variations, and data points..." });
 
-        const researchResponse = await claude.messages.create({
+        const researchStream = claude.messages.stream({
           model: resolveModel("claude-sonnet-4-6"),
           max_tokens: 32768,
           system: briefBlocks,
@@ -57,6 +57,7 @@ export async function POST(request: Request) {
 
 Output structured findings with clear section headers.` }],
         });
+        const researchResponse = await researchStream.finalMessage();
         logCachePerformance("/api/content/batch[research]", researchResponse.usage);
 
         let researchText = "";
@@ -69,7 +70,7 @@ Output structured findings with clear section headers.` }],
 
         const gapContext = "\n\nRefer to the INTERNAL LINK REFERENCE in your system context for existing content. Use for internal linking AND gap analysis.";
 
-        const briefResponse = await claude.messages.create({
+        const briefStream = claude.messages.stream({
           model: resolveModel("claude-sonnet-4-6"),
           max_tokens: 32768,
           system: briefBlocks,
@@ -153,6 +154,7 @@ Use this EXACT format:
 - Sequel POV: webinars are infrastructure, not events`,
           }],
         });
+        const briefResponse = await briefStream.finalMessage();
         logCachePerformance("/api/content/batch[brief]", briefResponse.usage);
 
         let briefContent = "";
@@ -309,7 +311,7 @@ ${briefContent}`,
           },
         ];
 
-        const call1Response = await claude.messages.create({
+        const call1Stream = claude.messages.stream({
           model: resolveModel("claude-sonnet-4-6"),
           max_tokens: 4096,
           system: call1Blocks,
@@ -348,6 +350,7 @@ ${draftContent}`,
             },
           ],
         });
+        const call1Response = await call1Stream.finalMessage();
         logCachePerformance("/api/content/batch[edit-c1]", call1Response.usage);
 
         let reviewNotes = "";

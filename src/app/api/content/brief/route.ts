@@ -80,7 +80,7 @@ export async function POST(request: Request) {
         // ═══════════════════════════════════════
         send({ type: "status", step: "research", message: "Researching top-ranking articles and SERP landscape..." });
 
-        const researchResponse = await claude.messages.create({
+        const researchStream = claude.messages.stream({
           model: resolveModel("claude-sonnet-4-6"),
           max_tokens: 32768,
           system: systemBlocks,
@@ -114,6 +114,7 @@ export async function POST(request: Request) {
 Output your findings in a structured format with clear section headers.` }],
         });
 
+        const researchResponse = await researchStream.finalMessage();
         logCachePerformance("/api/content/brief[research]", researchResponse.usage);
 
         let researchText = "";

@@ -134,7 +134,7 @@ export async function POST(request: Request) {
           },
         ];
 
-        const call1Response = await claude.messages.create({
+        const call1Stream = claude.messages.stream({
           model: resolveModel("claude-sonnet-4-6"),
           max_tokens: 4096, // Compact edit list only — no article reproduction
           system: call1Blocks,
@@ -173,6 +173,8 @@ ${draft}`,
             },
           ],
         });
+
+        const call1Response = await call1Stream.finalMessage();
 
         // Send periodic keepalive during Call 1
         send({ type: "status", step: "call1", message: "Analyzing..." });
