@@ -1,0 +1,381 @@
+"use client";
+
+import { useState, useRef, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
+import dynamic from "next/dynamic";
+import { markdownToHtml } from "@/lib/markdown-to-html";
+import type { RichTextEditorRef } from "@/components/editor/RichTextEditor";
+
+const RichTextEditor = dynamic(() => import("@/components/editor/RichTextEditor"), { ssr: false });
+
+interface Gate {
+  name: string;
+  passed: boolean;
+  detail: string;
+}
+
+export default function ContentRefreshPage() {
+  const searchParams = useSearchParams();
+
+  // Pre-fill from query params (from [id] page redirect)
+  const [url, setUrl] = useState(searchParams.get("url") || "");
+  const [keyword, setKeyword] = useState(searchParams.get("keyword") || "");
+  const [mode, setMode] = useState<"refresh" | "optimize" | "full">(
+    (searchParams.get("mode") as "refresh" | "optimize" | "full") || "full"
+  );
+  const postId = searchParams.get("postId") || null;
+
+  // Pipeline state
+  const [isRunning, setIsRunning] = useState(false);
+  const [statusMessage, setStatusMessage] = useState("");
+  const [currentStep, setCurrentStep] = useState("");
+
+  // Output panels
+  const [researchOutput, setResearchOutput] = useState("");
+  const [auditOutput, setAuditOutput] = useState("");
+  const [revisedOutput, setRevisedOutput] = useState("");
+  const [editorHtml, setEditorHtml] = useState("");
+
+  // Results
+  const [gates, setGates] = useState<Gate[]>([]);
+  const [changeCount, setChangeCount] = useState(0);
+  const [manualResearchCount, setManualResearchCount] = useState(0);
+  const [wordCount, setWordCount] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+
+  // Collapsible panels
+  const [showResearch, setShowResearch] = useState(false);
+  const [showAudit, setShowAudit] = useState(true);
+
+  const editorRef = useRef<RichTextEditorRef>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    const ref = eventSourceRef.current;
+    return () => { ref?.close(); };
+  }, []);
+
+  async function runRefresh() {
+    if (!url.trim()) return;
+
+    setIsRunning(true);
+    setError(null);
+    setResearchOutput("");
+    setAuditOutput("");
+    setRevisedOutput("");
+    setEditorHtml("");
+    setGates([]);
+    setChangeCount(0);
+    setManualResearchCount(0);
+    setWordCount(0);
+    setCurrentStep("fetch");
+    setStatusMessage("Starting...");
+
+    try {
+      const res = await fetch("/api/content/refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          postId,
+          url: url.trim(),
+          mode,
+          keyword: keyword.trim() || undefined,
+        }),
+      });
+
+      if (!res.ok || !res.body) {
+        setError(`Request failed: ${res.status}`);
+        setIsRunning(false);
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+
+            switch (data.type) {
+              case "status":
+                setStatusMessage(data.message);
+                setCurrentStep(data.step);
+                break;
+
+              case "research_complete":
+                setResearchOutput(data.research);
+                break;
+
+              case "delta":
+                if (data.step === "audit") {
+                  setAuditOutput((prev) => prev + data.text);
+                } else if (data.step === "revise") {
+                  setRevisedOutput((prev) => prev + data.text);
+                }
+                break;
+
+              case "audit_complete":
+                setAuditOutput(data.audit);
+                break;
+
+              case "complete": {
+                setGates(data.gates || []);
+                setChangeCount(data.changeCount || 0);
+                setManualResearchCount(data.manualResearchCount || 0);
+                setWordCount(data.wordCount || 0);
+
+                // Render revised article in editor
+                if (data.revisedArticle) {
+                  const html = await markdownToHtml(data.revisedArticle);
+                  setEditorHtml(html);
+                }
+                break;
+              }
+
+              case "error":
+                setError(data.error);
+                break;
+            }
+          } catch {
+            /* parse error — skip */
+          }
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Request failed");
+    }
+
+    setIsRunning(false);
+    setCurrentStep("");
+  }
+
+  const gatesPassed = gates.filter((g) => g.passed).length;
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <div className="bg-white border-b border-gray-200 px-6 py-4">
+        <div className="max-w-5xl mx-auto">
+          <h1 className="text-xl font-semibold text-gray-900">Content Refresh & Optimize</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Update outdated stats, fix SEO gaps, and optimize for current SERPs.
+          </p>
+        </div>
+      </div>
+
+      <div className="max-w-5xl mx-auto px-6 py-6 space-y-6">
+        {/* Input Section */}
+        <div className="bg-white rounded-xl border border-gray-200 p-6">
+          <div className="space-y-4">
+            {/* URL Input */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Article URL</label>
+              <input
+                type="url"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="https://sequel.io/post/your-article"
+                disabled={isRunning}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+              />
+            </div>
+
+            {/* Keyword (optional) */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Target Keyword <span className="text-gray-400 font-normal">(optional, improves SEO audit)</span>
+              </label>
+              <input
+                type="text"
+                value={keyword}
+                onChange={(e) => setKeyword(e.target.value)}
+                placeholder="e.g. webinar presentation tips"
+                disabled={isRunning}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+              />
+            </div>
+
+            {/* Mode Selector */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Audit Mode</label>
+              <div className="flex gap-3">
+                {[
+                  { value: "refresh" as const, label: "Refresh", desc: "Update stats, examples, and links" },
+                  { value: "optimize" as const, label: "Optimize", desc: "SEO, AEO, and E-E-A-T improvements" },
+                  { value: "full" as const, label: "Full", desc: "Both refresh and optimize" },
+                ].map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setMode(opt.value)}
+                    disabled={isRunning}
+                    className={`flex-1 px-4 py-3 rounded-lg border text-left transition-colors ${
+                      mode === opt.value
+                        ? "border-blue-500 bg-blue-50 text-blue-900"
+                        : "border-gray-200 bg-white text-gray-600 hover:border-gray-300"
+                    } disabled:opacity-50`}
+                  >
+                    <div className="text-sm font-medium">{opt.label}</div>
+                    <div className="text-xs text-gray-500 mt-0.5">{opt.desc}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Run Button */}
+            <button
+              onClick={runRefresh}
+              disabled={isRunning || !url.trim()}
+              className="w-full py-2.5 px-4 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+            >
+              {isRunning ? (
+                <span className="flex items-center justify-center gap-2">
+                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                  {statusMessage || "Running..."}
+                </span>
+              ) : (
+                `Run ${mode.charAt(0).toUpperCase() + mode.slice(1)} Audit`
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Error */}
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+            {error}
+          </div>
+        )}
+
+        {/* Progress Steps */}
+        {isRunning && (
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <div className="flex gap-2">
+              {["fetch", "research", "audit", "revise", "quality"].map((step) => (
+                <div
+                  key={step}
+                  className={`flex-1 h-1.5 rounded-full transition-colors ${
+                    currentStep === step
+                      ? "bg-blue-500 animate-pulse"
+                      : ["fetch", "research", "audit", "revise", "quality"].indexOf(step) <
+                        ["fetch", "research", "audit", "revise", "quality"].indexOf(currentStep)
+                      ? "bg-emerald-500"
+                      : "bg-gray-200"
+                  }`}
+                />
+              ))}
+            </div>
+            <p className="text-xs text-gray-500 mt-2 text-center">{statusMessage}</p>
+          </div>
+        )}
+
+        {/* Research Panel */}
+        {researchOutput && (
+          <div className="bg-white rounded-xl border border-gray-200">
+            <button
+              onClick={() => setShowResearch(!showResearch)}
+              className="w-full px-6 py-3 flex items-center justify-between text-left"
+            >
+              <span className="text-sm font-medium text-gray-700">Research Findings</span>
+              <svg className={`w-4 h-4 text-gray-400 transition-transform ${showResearch ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+            </button>
+            {showResearch && (
+              <div className="px-6 pb-4 text-sm text-gray-600 whitespace-pre-wrap border-t border-gray-100 pt-3 max-h-96 overflow-y-auto">
+                {researchOutput}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Audit Panel */}
+        {auditOutput && (
+          <div className="bg-white rounded-xl border border-gray-200">
+            <button
+              onClick={() => setShowAudit(!showAudit)}
+              className="w-full px-6 py-3 flex items-center justify-between text-left"
+            >
+              <span className="text-sm font-medium text-gray-700">
+                Audit Results
+                {changeCount > 0 && (
+                  <span className="ml-2 text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+                    {changeCount} changes
+                  </span>
+                )}
+                {manualResearchCount > 0 && (
+                  <span className="ml-1 text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">
+                    {manualResearchCount} need research
+                  </span>
+                )}
+              </span>
+              <svg className={`w-4 h-4 text-gray-400 transition-transform ${showAudit ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+            </button>
+            {showAudit && (
+              <div className="px-6 pb-4 text-sm text-gray-600 whitespace-pre-wrap border-t border-gray-100 pt-3 max-h-[600px] overflow-y-auto">
+                {auditOutput}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Quality Gates */}
+        {gates.length > 0 && (
+          <div className="bg-white rounded-xl border border-gray-200 p-6">
+            <h3 className="text-sm font-medium text-gray-700 mb-3">
+              Quality Gates: {gatesPassed}/{gates.length} passed
+            </h3>
+            <div className="grid grid-cols-2 gap-2">
+              {gates.map((g, i) => (
+                <div key={i} className={`flex items-center gap-2 text-xs px-3 py-1.5 rounded-lg ${g.passed ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
+                  <span>{g.passed ? "✓" : "✗"}</span>
+                  <span className="font-medium">{g.name}</span>
+                  <span className="text-gray-500 ml-auto">{g.detail}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Revised Article */}
+        {(revisedOutput || editorHtml) && (
+          <div className="bg-white rounded-xl border border-gray-200 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-medium text-gray-700">
+                Revised Article
+                {wordCount > 0 && <span className="ml-2 text-xs text-gray-400">{wordCount} words</span>}
+              </h3>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(revisedOutput);
+                  }}
+                  className="px-3 py-1.5 text-xs bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  Copy Markdown
+                </button>
+              </div>
+            </div>
+            {editorHtml ? (
+              <div className="border border-gray-200 rounded-lg">
+                <RichTextEditor ref={editorRef} content={editorHtml} />
+              </div>
+            ) : (
+              <div className="text-sm text-gray-600 whitespace-pre-wrap max-h-[600px] overflow-y-auto">
+                {revisedOutput}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

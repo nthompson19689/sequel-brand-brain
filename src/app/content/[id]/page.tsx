@@ -581,6 +581,14 @@ export default function ContentPostPage() {
                     Run Editor (3 Passes)
                   </button>
                 )}
+                {(post.status === "published" || post.status === "approved") && (
+                  <button
+                    onClick={() => router.push(`/content/refresh?postId=${post.id}&url=${encodeURIComponent(post.primary_keyword ? `https://sequel.io/post/${post.primary_keyword.replace(/\s+/g, "-").toLowerCase()}` : "")}&keyword=${encodeURIComponent(post.primary_keyword)}`)}
+                    className="px-5 py-2.5 text-sm font-medium text-white bg-emerald-600 rounded-xl hover:bg-emerald-700 transition-colors shadow-sm"
+                  >
+                    Refresh & Optimize
+                  </button>
+                )}
               </div>
             )}
           </div>

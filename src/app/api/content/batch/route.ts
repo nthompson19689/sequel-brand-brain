@@ -133,7 +133,7 @@ Use this EXACT format:
 - **Word count:** [section target, all must sum to ${wordCount}]
 [No two consecutive sections may share the same format. Use at least 3 different formats. At least 2 must be "deep dive prose." HARD RULE FOR LISTICLES: MAXIMUM 9 items. Never outline more than 9.]
 
-### Conclusion (100-150 words)
+### Conclusion (75-125 words)
 - Summary approach + CTA
 
 ## FAQ Section

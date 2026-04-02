@@ -135,6 +135,13 @@ export const BANNED_FILLER_PHRASES = [
   "in order to", // just use "to"
   "at scale",
   "full stop.", "period.", // for emphasis
+  // Expanded kill list (added from content spec)
+  "in the fast-paced world of", "when it comes to", "with that said",
+  "moving on", "truly", "really", "incredibly",
+  "significant improvement", "dramatic results", "substantial impact",
+  "it's important to remember", "to sum up",
+  "utilize", "facilitate", "elevate",
+  "let's get started", "it's crucial to", "it's essential to", "it's vital to",
 ];
 
 

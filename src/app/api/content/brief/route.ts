@@ -241,7 +241,7 @@ Typical H2 counts:
 - Over 3,000 words: 6-8+ H2 sections
 HARD RULE FOR LISTICLES: MAXIMUM 9 items. Never outline more than 9 list items. If the topic has 15+ possible tips, pick the 7-9 strongest and go deeper on each. Each item is its own H2.]
 
-### Conclusion (100-150 words)
+### Conclusion (75-125 words)
 - **Summary approach:** [recap key points | call to action | forward-looking statement]
 - **CTA:** [what do we want them to do next, specific page, resource, or action]
 
