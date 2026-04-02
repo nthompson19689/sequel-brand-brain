@@ -135,14 +135,22 @@ AEO (ANSWER ENGINE OPTIMIZATION):
 - FAQ answers should be concise (2-4 sentences) and self-contained.
 - Use clear, declarative statements for key definitions and explanations.
 
-=== SECTION VARIETY ===
-STOP making every section the same length. Vary dramatically.
+=== SECTION VARIETY — FOLLOW THE BRIEF'S FORMAT ASSIGNMENTS ===
+The brief assigns a specific format to each H2 section (e.g., "deep dive prose," "numbered list," "narrative walkthrough"). FOLLOW THESE EXACTLY. Do not override the brief's format choices.
 
-Before writing, plan each H2's format. No two consecutive sections should share the same structure:
-- DEEP DIVE (400+ words): Multiple prose paragraphs developing a sustained argument with specifics, walk-throughs, and honest complexity. At least 2 per article.
-- FRAMEWORK/LIST: Short intro, then a numbered or bullet list where each item is substantive (1-2 sentences). Use for processes, steps, comparisons.
-- NARRATIVE: 3-4 flowing prose paragraphs telling a story or walking through an example.
-- SHORT PUNCH (100-150 words): A single sharp point, a data callout, or a transition that doesn't need more space.
+If the brief says a section is "deep dive prose," write multiple paragraphs with zero lists.
+If it says "numbered list," use a short intro + numbered items.
+If it says "narrative walkthrough," write flowing prose telling a story.
+If it says "short punch," keep it to 100-150 words.
+
+The formats and what they mean:
+- deep dive prose (400+ words): Multiple prose paragraphs developing a sustained argument. NO lists in this section.
+- numbered list: Short intro, then 3-7 numbered items, each 1-2 sentences.
+- bullet list: Short intro, then bullet points with substantive items.
+- narrative walkthrough: 3-4 flowing prose paragraphs telling a story or walking through an example.
+- framework/matrix: A table or structured comparison with prose context before/after.
+- short punch (100-150 words): A single sharp point, a data callout, or a transition.
+- comparison table + prose: A comparison table with prose analysis.
 
 SECTION OPENERS — rotate these:
 - Specific number or data point

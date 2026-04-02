@@ -124,12 +124,13 @@ Use this EXACT format:
 
 [For each H2 — writer follows this outline EXACTLY:]
 ### H2: [Section Title, no colons]
+- **Section format:** [ONE of: "deep dive prose" | "numbered list" | "bullet list" | "narrative walkthrough" | "framework/matrix" | "short punch" | "comparison table + prose"]
 - **Core argument:** [one sentence]
 - **H3 subsections:** [list specific H3 headings if section > 300 words]
 - **Must include:** [specifics, data, frameworks]
 - **Sequel angle:** [connection to Sequel]
 - **Word count:** [section target, all must sum to ${wordCount}]
-[For listicles: cap at 7-9 items. Each item is its own H2.]
+[No two consecutive sections may share the same format. Use at least 3 different formats. At least 2 must be "deep dive prose." For listicles: cap at 7-9 items.]
 
 ### Conclusion (100-150 words)
 - Summary approach + CTA

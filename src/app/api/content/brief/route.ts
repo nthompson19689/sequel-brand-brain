@@ -211,13 +211,28 @@ ${contentType === "listicle" ? "**LISTICLE RULE:** The H1 must include the numbe
 [For each H2 section, use this format. The writer will follow this outline EXACTLY, so be specific:]
 
 ### H2: [Section Title, descriptive, keyword-aware, NO colons]
+- **Section format:** [ONE of: "deep dive prose" | "numbered list" | "bullet list" | "narrative walkthrough" | "framework/matrix" | "short punch" | "comparison table + prose" — see rules below]
 - **Core argument:** [one sentence: what is the POINT of this section?]
 - **H3 subsections:** [list specific H3 headings if this section needs them. Any section over 300 words should have at least one H3. Write the exact H3 titles the writer should use.]
 - **Must include:** [specific examples, data points from the table above, or frameworks required]
 - **Sequel angle:** [how does this connect to what Sequel does or believes?]
 - **Word count:** [target for this section, all section targets must sum to ${targetWC}]
 
-[Provide the full outline with ALL H2 sections and their H3 subsections. The writer will use these headings verbatim.
+SECTION FORMAT RULES — VARIETY IS MANDATORY:
+- No two consecutive sections may share the same format. If section 3 is "bullet list," section 4 CANNOT also be "bullet list."
+- Every article must use at least 3 different formats across its sections.
+- At least 2 sections must be "deep dive prose" (400+ words of sustained paragraphs, no lists).
+- "Numbered list" and "bullet list" together should not exceed 40% of total sections.
+- Format options:
+  * deep dive prose: Multiple paragraphs developing a sustained argument. No lists. Pure essay.
+  * numbered list: Short intro, then 3-7 numbered items, each 1-2 sentences. Good for steps, rankings.
+  * bullet list: Short intro, then bullet points with substantive items. Good for features, criteria.
+  * narrative walkthrough: 3-4 flowing paragraphs telling a story or walking through a real example.
+  * framework/matrix: A table or structured comparison, preceded and followed by prose context.
+  * short punch: 100-150 words. One sharp point, a data callout, or a transition. No list.
+  * comparison table + prose: A comparison table with prose analysis above or below.
+
+[Provide the full outline with ALL H2 sections and their H3 subsections. The writer will use these headings and formats verbatim.
 Typical H2 counts:
 - Under 1,500 words: 3-4 H2 sections
 - 1,500-2,000 words: 4-5 H2 sections
