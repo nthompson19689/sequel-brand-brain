@@ -159,7 +159,7 @@ ${articleText.slice(0, 15000)}`;
 
         const auditStream = await claude.messages.stream({
           model: resolveModel("claude-sonnet-4-6"),
-          max_tokens: 16384,
+          max_tokens: 32768,
           system: auditBlocks,
           messages: [
             {
@@ -204,12 +204,12 @@ ${articleText.slice(0, 30000)}`,
 
         const reviseStream = await claude.messages.stream({
           model: resolveModel("claude-opus-4-6"),
-          max_tokens: 16384,
+          max_tokens: 32768,
           system: reviseBlocks,
           messages: [
             {
               role: "user",
-              content: `Apply the audit findings to this article. Output the complete revised article with <!-- CHANGED --> comments on every edit.
+              content: `Apply the audit findings to this article. Output the complete revised article in CLEAN markdown, ready to copy-paste into WordPress. No HTML comments, no annotations, no change notes.
 
 AUDIT FINDINGS:
 ${auditText}
@@ -238,9 +238,9 @@ ${articleText.slice(0, 30000)}`,
         const violations = scanBannedPatterns(revisedContent);
         const totalViolations = violations.reduce((s, v) => s + v.matches.length, 0);
 
-        // Count changes made
-        const changeCount = (revisedContent.match(/<!-- CHANGED:/g) || []).length;
-        const manualResearchCount = (revisedContent.match(/<!-- NEEDS MANUAL RESEARCH:/g) || []).length;
+        // Count changes from the audit (not from the revised article, which is now clean)
+        const changeCount = (auditText.match(/### Change \d+/g) || []).length;
+        const manualResearchCount = (auditText.match(/NEEDS MANUAL RESEARCH/gi) || []).length;
 
         // Save to DB if postId provided
         if (supabase && postId) {
