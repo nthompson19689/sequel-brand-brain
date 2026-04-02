@@ -50,20 +50,30 @@ export async function POST(request: Request) {
         // ═══════════════════════════════════════
         send({ type: "stage", stage: "brief", message: "Starting research & brief generation..." });
 
+        const contentType = postType || "supporting";
+
         const { blocks: briefBlocks } = await buildSystemBlocks({
           includeWritingStandards: true,
-          additionalContext: `You are a content strategist generating a detailed writing brief.${linkRef}`,
+          additionalContext: `You are a senior SEO content strategist building a brief for a writer. Research the keyword, analyze the SERPs, and produce a brief so specific that any competent writer could execute it without guessing. Every statistic MUST have a source URL. If you cannot find a credible source, DO NOT include the stat.${linkRef}`,
         });
 
-        // Research
-        send({ type: "status", stage: "brief", message: "Researching top-ranking articles..." });
+        // Multi-query SERP research
+        send({ type: "status", stage: "brief", message: "Researching SERP landscape, long-tail variations, and data points..." });
 
         const researchResponse = await claude.messages.create({
           model: resolveModel("claude-sonnet-4-6"),
           max_tokens: MAX_TOKENS,
           system: briefBlocks,
-          tools: [{ type: "web_search_20250305" as const, name: "web_search", max_uses: 5 }],
-          messages: [{ role: "user", content: `Research the keyword "${keyword}". Find the top 5-10 ranking articles. For each, note: title, URL, main headings/topics covered, approximate word count, unique angles.` }],
+          tools: [{ type: "web_search_20250305" as const, name: "web_search", max_uses: 10 }],
+          messages: [{ role: "user", content: `Research "${keyword}" for a content brief. Complete ALL tasks:
+
+1. SERP ANALYSIS: Search "${keyword}", analyze top 5-7 pages. For each: title, URL, H2 headings, word count, content type, unique angles, strengths vs. weaknesses.
+2. LONG-TAIL: Search 2-3 related variations to understand the full intent landscape.
+3. PEOPLE ALSO ASK: Note PAA questions and related searches.
+4. DATA POINTS: Find 3-5 recent credible statistics with source name, full URL, and year. Prefer primary sources. No stat without a URL.
+5. COMPETITIVE GAPS: Table stakes (must include), gaps (differentiation), Sequel-specific angles (product capabilities, customer outcomes, webinars as revenue infrastructure).
+
+Output structured findings with clear section headers.` }],
         });
         logCachePerformance("/api/content/batch[research]", researchResponse.usage);
 
@@ -72,13 +82,10 @@ export async function POST(request: Request) {
           if (block.type === "text") researchText += block.text;
         }
 
-        // Generate brief
+        // Generate detailed brief
         send({ type: "status", stage: "brief", message: "Generating detailed brief..." });
 
-        let gapContext = "";
-        if (existingArticles.length > 0) {
-          gapContext = `\n\nOur existing content library:\n${existingArticles.slice(0, 30).map((a) => `- "${a.title}" (${a.keyword})`).join("\n")}`;
-        }
+        const gapContext = "\n\nRefer to the INTERNAL LINK REFERENCE in your system context for existing content. Use for internal linking AND gap analysis.";
 
         const briefResponse = await claude.messages.create({
           model: resolveModel("claude-sonnet-4-6"),
@@ -86,7 +93,79 @@ export async function POST(request: Request) {
           system: briefBlocks,
           messages: [{
             role: "user",
-            content: `Generate a detailed writing brief:\n\nKeyword: ${keyword}\nPost Type: ${postType || "supporting"}\nSearch Intent: ${searchIntent || "informational"}\nTarget Word Count: ${wordCount}\n\nResearch:\n${researchText}${gapContext}\n\nInclude: Purpose, Reader Context, full Outline with H2/H3, 3+ Data Points with sources, 5-10 Internal Links (from the reference list, each in a different section, with anchor text suggestions), AEO Notes, SEO Notes.\n\nIMPORTANT: Select 5-10 internal links from the reference list. Each link in a DIFFERENT section. Use short natural anchor text.`,
+            content: `Generate a detailed writing brief:
+
+Keyword: ${keyword}
+Post Type: ${contentType}
+Search Intent: ${searchIntent || "informational"}
+Target Word Count: ${wordCount}
+
+Research:
+${researchText}
+${gapContext}
+
+Use this EXACT format:
+
+# Content Brief: ${keyword}
+
+## Metadata
+- **Target Keyword:** ${keyword}
+- **Secondary Keywords:** [3-5 from SERP research]
+- **URL Slug:** /${keyword.replace(/\s+/g, "-").toLowerCase()}/
+- **Meta Title:** [under 60 chars, keyword front-loaded]
+- **Meta Description:** [under 155 chars, action verb, keyword + hook]
+- **Target Word Count:** ${wordCount}
+- **Content Type:** [based on what SERPs reward]
+
+## Search Intent Analysis
+- **Primary Intent:** [informational | commercial | transactional | navigational]
+- **Searcher Stage:** [awareness | consideration | decision]
+- **Who is searching this:** [specific persona]
+- **What they want to DO after reading:** [specific action]
+- **What they already know:** [baseline knowledge]
+- **What they're frustrated by:** [why existing content fails them]
+
+## SERP Competitive Analysis
+### Table Stakes (must include):
+### Gaps (our differentiation):
+### Sequel-Specific Angles:
+
+## Required Data Points & Sources
+| Claim/Stat | Source | URL | Year |
+|---|---|---|---|
+[3-5 rows minimum, every stat needs a real URL]
+
+## Article Structure
+### Title: [Exact H1]
+### Introduction (100-150 words)
+- Hook, Context, Promise, Transition
+
+[For each H2:]
+### H2: [Section Title, no colons]
+- **Core argument:** [one sentence]
+- **Must include:** [specifics, data, frameworks]
+- **Sequel angle:** [connection to Sequel]
+- **Word count:** [section target, all must sum to ${wordCount}]
+
+### Conclusion (100-150 words)
+- Summary approach + CTA
+
+## FAQ Section
+| Question | Answer Summary (2-3 sentences) |
+|---|---|
+[3-5 questions from PAA/related searches]
+
+## Internal Linking Requirements (5-10 from reference)
+| Anchor Text (2-4 words) | Target URL | Placement (which H2) |
+|---|---|---|
+[5-10 rows, each in different section, exact URLs from reference]
+
+## Tone & Voice Constraints
+- Senior B2B marketer audience, assume competence
+- No fluff, no filler transitions
+- Concrete > abstract, numbers > adjectives
+- Every claim backed by data or example
+- Sequel POV: webinars are infrastructure, not events`,
           }],
         });
         logCachePerformance("/api/content/batch[brief]", briefResponse.usage);
@@ -100,7 +179,7 @@ export async function POST(request: Request) {
 
         // Save brief
         if (supabase && postId) {
-          const titleMatch = briefContent.match(/#### H1:\s*(.+)/);
+          const titleMatch = briefContent.match(/### Title:\s*(.+)/) || briefContent.match(/#### H1:\s*(.+)/);
           const title = titleMatch ? titleMatch[1].trim() : keyword;
           await supabase.from("content_posts").update({ brief: briefContent, title, status: "brief_approved" }).eq("id", postId);
         }
