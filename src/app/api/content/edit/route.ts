@@ -35,12 +35,6 @@ export async function POST(request: Request) {
   const supabase = getSupabaseServerClient();
   const claude = getClaudeClient();
 
-  // Dynamic token cap for Call 2 (clean article output).
-  // Call 1 is now a compact edit list (capped at 4096).
-  // Cap is based on the TARGET word count, not the draft length — this prevents
-  // the editor from reproducing a bloated draft verbatim. If the draft is 3200
-  // words but the target is 1200, the editor only gets enough tokens for ~1200.
-  const targetWC = wordCount || 1500;
   const call2TokenCap = 16384;
 
   // Block 1: brand docs (CACHED, same as all routes)
