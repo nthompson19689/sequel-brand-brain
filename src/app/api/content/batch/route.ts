@@ -44,7 +44,7 @@ export async function POST(request: Request) {
 
         const researchResponse = await claude.messages.create({
           model: resolveModel("claude-sonnet-4-6"),
-          max_tokens: 16384,
+          max_tokens: 32768,
           system: briefBlocks,
           tools: [{ type: "web_search_20250305" as const, name: "web_search", max_uses: 3 }],
           messages: [{ role: "user", content: `Research "${keyword}" for a content brief. Complete ALL tasks:
@@ -71,7 +71,7 @@ Output structured findings with clear section headers.` }],
 
         const briefResponse = await claude.messages.create({
           model: resolveModel("claude-sonnet-4-6"),
-          max_tokens: 16384,
+          max_tokens: 32768,
           system: briefBlocks,
           messages: [{
             role: "user",

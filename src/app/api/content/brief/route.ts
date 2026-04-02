@@ -82,7 +82,7 @@ export async function POST(request: Request) {
 
         const researchResponse = await claude.messages.create({
           model: resolveModel("claude-sonnet-4-6"),
-          max_tokens: 16384,
+          max_tokens: 32768,
           system: systemBlocks,
           tools: [{ type: "web_search_20250305" as const, name: "web_search", max_uses: 3 }],
           messages: [{ role: "user", content: `You are researching the keyword "${keyword}" to build a content brief. Complete ALL of these research tasks:
@@ -271,7 +271,7 @@ Select the most topically relevant articles. Each link in a DIFFERENT section. U
 
         const stream = await claude.messages.stream({
           model: resolveModel("claude-sonnet-4-6"),
-          max_tokens: 16384,
+          max_tokens: 32768,
           system: systemBlocks,
           messages: [{ role: "user", content: briefPrompt }],
         });
