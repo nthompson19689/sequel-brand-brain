@@ -146,7 +146,7 @@ ${articleText.slice(0, 15000)}`;
 
   const researchStream = claude.messages.stream({
     model: resolveModel("claude-sonnet-4-6"),
-    max_tokens: 32768,
+    max_tokens: 64000,
     system: systemBlocks,
     tools: [{ type: "web_search_20250305" as const, name: "web_search", max_uses: maxSearches }],
     messages: [{ role: "user", content: researchPrompt }],
@@ -195,7 +195,7 @@ async function handleAudit(
 
   const auditStream = await claude.messages.stream({
     model: resolveModel("claude-sonnet-4-6"),
-    max_tokens: 32768,
+    max_tokens: 64000,
     system: auditBlocks,
     messages: [
       {
@@ -255,7 +255,7 @@ async function handleRevise(
 
   const reviseStream = await claude.messages.stream({
     model: resolveModel("claude-opus-4-6"),
-    max_tokens: 32768,
+    max_tokens: 32000, // Opus max is 32K
     system: reviseBlocks,
     messages: [
       {
