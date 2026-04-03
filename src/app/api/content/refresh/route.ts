@@ -254,8 +254,8 @@ async function handleRevise(
   ];
 
   const reviseStream = await claude.messages.stream({
-    model: resolveModel("claude-opus-4-6"),
-    max_tokens: 32000, // Opus max is 32K
+    model: resolveModel("claude-sonnet-4-6"),
+    max_tokens: 64000,
     system: reviseBlocks,
     messages: [
       {
