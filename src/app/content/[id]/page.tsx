@@ -166,9 +166,16 @@ export default function ContentPostPage() {
         wordCount: post.word_count || 1800,
       }, (delta) => setStreamOutput((p) => p + delta), setStatusMessage);
       setEditorHtml(markdownToHtml(text));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Writing failed");
+    } finally {
+      // Always refetch — the pipeline may have updated the DB even if the
+      // stream threw after the fact, and we never want the UI to revert
+      // to a stale status.
       await loadPost();
-    } catch (err) { setError(err instanceof Error ? err.message : "Writing failed"); }
-    setIsRunning(false); setStatusMessage("");
+      setIsRunning(false);
+      setStatusMessage("");
+    }
   }
 
   // ── Stage 3: Run Editor ──
@@ -183,9 +190,13 @@ export default function ContentPostPage() {
         wordCount: post.word_count || 1800,
       }, (delta) => setStreamOutput((p) => p + delta), setStatusMessage);
       setEditorHtml(markdownToHtml(text));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Editing failed");
+    } finally {
       await loadPost();
-    } catch (err) { setError(err instanceof Error ? err.message : "Editing failed"); }
-    setIsRunning(false); setStatusMessage("");
+      setIsRunning(false);
+      setStatusMessage("");
+    }
   }
 
   // ── Stage 4: Mark Complete ──
@@ -290,11 +301,15 @@ export default function ContentPostPage() {
         }
       }
 
-      await loadPost();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Pipeline failed");
+    } finally {
+      // Always refetch — the batch may have completed its DB writes even
+      // if the stream errored after the final save, and we never want
+      // the UI to revert to a stale status.
+      await loadPost();
+      setIsRunning(false);
     }
-    setIsRunning(false);
   }
 
   // ── Refine via chat ──

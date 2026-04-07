@@ -105,15 +105,26 @@ export default function ContentDashboard() {
           <h1 className="text-2xl font-semibold text-heading">Content Pipeline</h1>
           <p className="mt-1 text-sm text-body">{posts.length} posts across all stages</p>
         </div>
-        <Link
-          href="/content/import"
-          className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-brand-500 rounded-xl hover:bg-brand-600 transition-colors shadow-sm"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-          </svg>
-          New Content
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/content/bulk"
+            className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-brand-600 bg-white border border-brand-200 rounded-xl hover:bg-brand-50 transition-colors shadow-sm"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m6-6v8.25m.503 3.498 4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 0 0-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0Z" />
+            </svg>
+            Bulk Batch
+          </Link>
+          <Link
+            href="/content/import"
+            className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-brand-500 rounded-xl hover:bg-brand-600 transition-colors shadow-sm"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            New Content
+          </Link>
+        </div>
       </div>
 
       {/* Controls: view toggle, search, filter */}

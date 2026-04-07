@@ -284,7 +284,7 @@ Use this EXACT format:
 
         // Save edited draft
         if (supabase && postId) {
-          await supabase
+          const { error: editUpdateErr } = await supabase
             .from("content_posts")
             .update({
               edited_draft: editResult.cleanDraft,
@@ -300,6 +300,7 @@ Use this EXACT format:
                   editResult.externalLinksPreservedAfterEdit,
                 externalLinksDropped: editResult.externalLinksDropped,
                 externalLinksRecovered: editResult.externalLinksRecovered,
+                forbiddenLinksStripped: editResult.forbiddenLinksStripped,
               },
               word_count: editResult.cleanDraft
                 .split(/\s+/)
@@ -307,6 +308,12 @@ Use this EXACT format:
               status: "edited",
             })
             .eq("id", postId);
+          if (editUpdateErr) {
+            console.error(
+              "[api/content/batch] Supabase edit update failed:",
+              editUpdateErr
+            );
+          }
         }
 
         send({
@@ -325,7 +332,9 @@ Use this EXACT format:
             editResult.externalLinksPreservedAfterEdit.length,
           externalLinksDropped: editResult.externalLinksDropped.length,
           externalLinksRecovered: editResult.externalLinksRecovered.length,
+          forbiddenLinksStripped: editResult.forbiddenLinksStripped.length,
           wordCount: editResult.cleanDraft.split(/\s+/).filter(Boolean).length,
+          status: "edited",
         });
       } catch (err) {
         send({

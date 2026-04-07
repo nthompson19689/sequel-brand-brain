@@ -43,7 +43,7 @@ export async function POST(request: Request) {
         });
 
         if (supabase && postId) {
-          await supabase
+          const { error: updateErr } = await supabase
             .from("content_posts")
             .update({
               edited_draft: result.cleanDraft,
@@ -59,6 +59,7 @@ export async function POST(request: Request) {
                   result.externalLinksPreservedAfterEdit,
                 externalLinksDropped: result.externalLinksDropped,
                 externalLinksRecovered: result.externalLinksRecovered,
+                forbiddenLinksStripped: result.forbiddenLinksStripped,
               },
               word_count: result.cleanDraft
                 .split(/\s+/)
@@ -66,6 +67,12 @@ export async function POST(request: Request) {
               status: "edited",
             })
             .eq("id", postId);
+          if (updateErr) {
+            console.error(
+              "[api/content/edit] Supabase update failed:",
+              updateErr
+            );
+          }
         }
 
         send({
@@ -82,6 +89,7 @@ export async function POST(request: Request) {
             result.externalLinksPreservedAfterEdit.length,
           externalLinksDropped: result.externalLinksDropped.length,
           externalLinksRecovered: result.externalLinksRecovered.length,
+          forbiddenLinksStripped: result.forbiddenLinksStripped.length,
         });
       } catch (err) {
         send({

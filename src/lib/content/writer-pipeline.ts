@@ -2,29 +2,34 @@
  * Three-Agent Sequential Writer
  *
  * Splits article generation into three sequential Claude calls so no single
- * call has to handle more than ~1,000 words at a time:
+ * call has to handle its whole section at once. Section budgets scale
+ * proportionally to the user's overall target word count:
  *
- *   1. INTRO AGENT       (150-300 words) — sees the brief only
- *   2. MAIN ARTICLE AGENT (800-1,000 words) — sees the brief + intro
- *   3. FINAL THOUGHTS AGENT (250 words) — sees the brief + intro + main
+ *   1. INTRO AGENT         — ~15% of target (min 150 / max 300 words)
+ *   2. MAIN ARTICLE AGENT  — the remainder (target − intro − final)
+ *   3. FINAL THOUGHTS AGENT — ~15% of target (min 200 / max 350 words) + FAQ
+ *
+ * For a 1,300-word target that's roughly 195 / 910 / 195.
+ * For an 1,800-word target: 270 / 1,260 / 270.
  *
  * All three share the same cached system blocks (brand docs + writing
- * standards + article link reference + WRITER_SYSTEM), so prompt caching
+ * standards + article link reference + WRITER_SYSTEM) so prompt caching
  * carries across the three calls with zero additional token cost.
  *
  * The pipeline is fully autonomous — there is no human approval gate
  * between stages. The intro finishes, the main kicks off automatically
  * with the intro as extra context, and the conclusion kicks off with
  * both prior outputs as extra context.
- *
- * Each agent follows the same brand voice + campaign brief. Stage-specific
- * instructions (word count, what to cover, what not to repeat) are delivered
- * via the user message so the system blocks stay cacheable.
  */
 import type Anthropic from "@anthropic-ai/sdk";
 import { resolveModel } from "@/lib/claude";
 import { buildSystemBlocks, logCachePerformance } from "@/lib/brand-context";
 import { WRITER_SYSTEM } from "@/lib/content/prompts";
+import {
+  FORBIDDEN_CITATION_DOMAINS,
+  FORBIDDEN_DOMAINS_PROMPT_LINE,
+  SOURCE_CITATION_RULES,
+} from "@/lib/content/brand-rules";
 
 type SendFn = (data: Record<string, unknown>) => void;
 
@@ -44,11 +49,30 @@ export interface ThreeAgentWriterResult {
   main: string;
   finalThoughts: string;
   sectionWordCounts: { intro: number; main: number; finalThoughts: number };
+  sectionTargets: { intro: number; main: number; finalThoughts: number };
 }
 
-const INTRO_TARGET_WORDS = { min: 150, max: 300 };
-const MAIN_TARGET_WORDS = { min: 800, max: 1000 };
-const FINAL_TARGET_WORDS = { min: 200, max: 300 };
+/**
+ * Allocate per-section word budgets based on the user's overall target.
+ *
+ * The allocation is proportional — a 1300 target produces 195/910/195,
+ * an 1800 target produces 270/1260/270, etc. Intro + final each get
+ * roughly 15% with hard min/max clamps so the intro never disappears
+ * and the final never runs past a closing-paragraph length.
+ */
+export function allocateSectionBudgets(target: number) {
+  const introTarget = Math.max(150, Math.min(300, Math.round(target * 0.15)));
+  const finalTarget = Math.max(200, Math.min(350, Math.round(target * 0.15)));
+  const mainTarget = Math.max(400, target - introTarget - finalTarget);
+  return { introTarget, mainTarget, finalTarget };
+}
+
+function wordRange(target: number, tolerance = 0.1) {
+  return {
+    min: Math.round(target * (1 - tolerance)),
+    max: Math.round(target * (1 + tolerance)),
+  };
+}
 
 /**
  * Run the three-agent sequential writer.
@@ -60,7 +84,25 @@ const FINAL_TARGET_WORDS = { min: 200, max: 300 };
 export async function runThreeAgentWriter(
   opts: ThreeAgentWriterOptions
 ): Promise<ThreeAgentWriterResult> {
-  const { claude, brief, wordCount, send, stageName = "write" } = opts;
+  const {
+    claude,
+    brief,
+    wordCount: rawWordCount,
+    send,
+    stageName = "write",
+  } = opts;
+  const targetWordCount = rawWordCount || 1500;
+  const budgets = allocateSectionBudgets(targetWordCount);
+  const introRange = wordRange(budgets.introTarget);
+  const mainRange = wordRange(budgets.mainTarget);
+  const finalRange = wordRange(budgets.finalTarget);
+
+  send?.({
+    type: "status",
+    stage: stageName,
+    step: "budget",
+    message: `Target ${targetWordCount} words → intro ${budgets.introTarget} / main ${budgets.mainTarget} / final ${budgets.finalTarget}`,
+  });
 
   // Build system blocks ONCE. All three calls reuse them so prompt caching
   // kicks in on calls 2 and 3 (the system prefix is identical).
@@ -72,12 +114,17 @@ export async function runThreeAgentWriter(
       `
 
 === THREE-AGENT PIPELINE ===
-This article is being written in three sequential passes by three specialized agents, each handling one section. You are ONE of those agents. The user message will tell you which section you are writing. Do NOT attempt to write the full article. Only write your assigned section. The other agents will handle the rest.
+This article is being written in three sequential passes by three specialized agents, each handling one section. You are ONE of those agents. The user message will tell you which section you are writing and its exact word budget. Do NOT attempt to write the full article. Only write your assigned section. The other agents will handle the rest.
+
+=== HARD RULES THAT APPLY TO EVERY SECTION ===
+${SOURCE_CITATION_RULES}
+
+${FORBIDDEN_DOMAINS_PROMPT_LINE}
 
 === INTERNAL + EXTERNAL LINK RULES (across the full pipeline) ===
 Combined across all three sections the full article must contain:
 - 5-7 internal links from the INTERNAL LINK REFERENCE table only (no invented URLs, each URL linked only once).
-- At least 3 external citations with real source URLs.
+- At least 3 external citations with real source URLs — NEVER from the forbidden competitor list above.
 
 Per-section link budgets:
 - Intro: 0-1 internal link, 0-1 external citation (optional — keep it punchy).
@@ -93,11 +140,13 @@ Anchor text is 2-4 natural words woven into a sentence. The reader should not no
 2. Essay style, not listicle. Prose is default. Lists are seasoning.
 3. Connect to the surrounding sections with transitions — no abrupt starts or stops.
 4. Internal links only from the INTERNAL LINK REFERENCE. Each URL linked ONLY ONCE across the entire article.
-5. External citations must have real source URLs.
-6. Never use "It's not about X, it's about Y."
-7. One example per point. No rule-of-three padding.
-8. Vary sentence and paragraph lengths.
-9. Follow the CAMPAIGN BRIEF below as the blueprint — do not invent sections or rearrange the structure the brief specified.`;
+5. EVERY statistic, percentage, dollar amount, multiple ("3x", "47%"), benchmark, or industry claim MUST have a source URL attached in the same sentence. No unsourced numbers. Ever.
+6. "We've seen" / "we've found" / "our team has" claims need a case-study link or the claim must be rephrased as an observation without a number. Do NOT invent customer outcomes you cannot link to.
+7. NEVER link to or cite any of the forbidden competitor domains: ${FORBIDDEN_CITATION_DOMAINS.join(", ")}. These are direct competitors — ignore them entirely as sources.
+8. Never use "It's not about X, it's about Y."
+9. One example per point. No rule-of-three padding.
+10. Vary sentence and paragraph lengths.
+11. Follow the CAMPAIGN BRIEF below as the blueprint — do not invent sections or rearrange the structure the brief specified. Hit the assigned word budget exactly.`;
 
   // Helper to run one agent and stream its deltas
   async function runAgent(params: {
@@ -154,11 +203,13 @@ Anchor text is 2-4 natural words woven into a sentence. The reader should not no
   }
 
   // ══════════════════════════════════════════════════════════════
-  // STAGE 1 / 3 — INTRO AGENT (150-300 words)
+  // STAGE 1 / 3 — INTRO AGENT
   // ══════════════════════════════════════════════════════════════
   const introPrompt = `You are the INTRODUCTION AGENT (agent 1 of 3).
 
-Your job: write ONLY the top of the article — the metadata, H1, and the opening section.
+OVERALL ARTICLE TARGET: ${targetWordCount} words. You are writing the opening ONLY.
+
+YOUR SECTION BUDGET: ${budgets.introTarget} words (${introRange.min}-${introRange.max} acceptable). Do not exceed ${introRange.max}. Count as you write.
 
 OUTPUT FORMAT (exactly this, in order, nothing else):
 META: [under 155 chars, includes the primary keyword]
@@ -166,9 +217,7 @@ SLUG: [exact keyword hyphenated, no leading slash, no trailing slash]
 
 # [H1 — exact title from the brief, primary keyword first]
 
-[150-300 words of introduction prose. No H2. No FAQ. No conclusion. Just the opening.]
-
-⚠️ WORD COUNT: ${INTRO_TARGET_WORDS.min}-${INTRO_TARGET_WORDS.max} words for the intro prose (NOT counting META, SLUG, or H1). Do not exceed ${INTRO_TARGET_WORDS.max} words. Count as you write.
+[Introduction prose. ${introRange.min}-${introRange.max} words. No H2. No FAQ. No conclusion.]
 
 INTRO GOALS:
 - Hook the reader in the first sentence (a concrete observation, not a generic "in today's world" opener).
@@ -176,6 +225,7 @@ INTRO GOALS:
 - Promise what the reader will walk away with.
 - Transition naturally into the body (the next agent will pick up right where you leave off).
 - 0-1 internal link, 0-1 external citation (optional, keep it tight).
+- Any statistic in the intro MUST carry a source URL. If you don't have one, don't use the stat.
 
 ${baseRules}
 
@@ -190,11 +240,13 @@ ${brief}`;
   });
 
   // ══════════════════════════════════════════════════════════════
-  // STAGE 2 / 3 — MAIN ARTICLE AGENT (800-1,000 words)
+  // STAGE 2 / 3 — MAIN ARTICLE AGENT
   // ══════════════════════════════════════════════════════════════
   const mainPrompt = `You are the MAIN ARTICLE AGENT (agent 2 of 3).
 
-The intro has already been written (see below). Your job is to write ONLY the body of the article — the H2 sections that deliver on the intro's promise.
+OVERALL ARTICLE TARGET: ${targetWordCount} words. The intro has already been written (see below). Your job is to write ONLY the body of the article — the H2 sections that deliver on the intro's promise.
+
+YOUR SECTION BUDGET: ${budgets.mainTarget} words (${mainRange.min}-${mainRange.max} acceptable). This is the body alone, not counting the intro or final thoughts. Do NOT exceed ${mainRange.max} words. Count as you write. If you're approaching ${mainRange.max}, wrap the current section and stop.
 
 DO NOT:
 - Rewrite or repeat the intro.
@@ -205,13 +257,11 @@ DO NOT:
 DO:
 - Pick up naturally from where the intro ends. Your first H2 should continue the thread.
 - Cover the H2 sections from the brief's "Article Structure" outline, in order, with the formats the brief specified.
-- Write ${MAIN_TARGET_WORDS.min}-${MAIN_TARGET_WORDS.max} words of body prose across those H2s.
 - Include 3-5 internal links from the INTERNAL LINK REFERENCE (use natural 2-4 word anchors — each URL only once across the full article).
-- Include at least 2-3 external citations with real source URLs to back up claims / stats.
+- Include AT LEAST 2-3 external citations. EVERY number, percentage, dollar amount, benchmark, and industry claim must have a source URL in the same sentence. Unsourced stats are a failure.
+- Sequel case-study / "we've seen" claims must link to an internal case study in the INTERNAL LINK REFERENCE or be rephrased without a number.
 - Develop fewer points deeply rather than covering more shallowly.
 - End on a line that sets up a natural transition into the final-thoughts section the next agent will write. Do NOT actually write "in conclusion" or "finally" — just leave the article at a point where a wrap-up makes sense.
-
-⚠️ WORD COUNT: ${MAIN_TARGET_WORDS.min}-${MAIN_TARGET_WORDS.max} words for the body ONLY. This is a hard ceiling. Count as you write. If you're approaching ${MAIN_TARGET_WORDS.max}, wrap the current section and stop.
 
 ${baseRules}
 
@@ -221,19 +271,28 @@ ${brief}
 === INTRO ALREADY WRITTEN (do not repeat, continue naturally) ===
 ${introText}`;
 
+  // Token budget: roughly 1.5x the target word count, capped for safety.
+  // 1000 words ≈ 1400 tokens, so we give headroom to avoid truncation.
+  const mainMaxTokens = Math.min(
+    8192,
+    Math.max(4096, Math.round(budgets.mainTarget * 2.5))
+  );
+
   const mainText = await runAgent({
     label: "main",
     humanLabel: "main article body",
     userPrompt: mainPrompt,
-    maxTokens: 6144,
+    maxTokens: mainMaxTokens,
   });
 
   // ══════════════════════════════════════════════════════════════
-  // STAGE 3 / 3 — FINAL THOUGHTS AGENT (250 words + FAQ)
+  // STAGE 3 / 3 — FINAL THOUGHTS AGENT
   // ══════════════════════════════════════════════════════════════
   const finalPrompt = `You are the FINAL THOUGHTS AGENT (agent 3 of 3).
 
-The intro and main body have already been written (see below). Your job is to close the article with a "Final Thoughts" section AND the FAQ section.
+OVERALL ARTICLE TARGET: ${targetWordCount} words. The intro and main body are already written (see below). Your job is to close the article with a "Final Thoughts" section AND the FAQ.
+
+YOUR SECTION BUDGET: ${budgets.finalTarget} words for the Final Thoughts prose (${finalRange.min}-${finalRange.max} acceptable). The FAQ is ADDITIONAL (3-5 questions, 2-3 sentences each). Do not exceed the Final Thoughts budget on the prose side.
 
 DO NOT:
 - Rewrite or repeat anything the intro or main body already said.
@@ -243,12 +302,10 @@ DO NOT:
 
 DO:
 - Pick up naturally from the last sentence of the main article.
-- Write ONE H2 titled "## Final Thoughts" (or a close variant the brief called for). ${FINAL_TARGET_WORDS.min}-${FINAL_TARGET_WORDS.max} words of prose. Synthesize the argument the body made, name what the reader should do with it, and land on a concrete forward-looking line. No CTA lectures.
+- Write ONE H2 titled "## Final Thoughts" (or a close variant the brief called for). ${finalRange.min}-${finalRange.max} words of prose. Synthesize the argument, name what the reader should do with it, land on a concrete forward-looking line. No CTA lectures.
 - Follow it with the FAQ section: "## FAQ" heading, then 3-5 questions as "### " H3 headings (plain text, no numbers, no bold), with 2-3 sentence prose answers under each. Pull questions from the brief's PAA list if provided.
 - Include 1-2 internal links from the INTERNAL LINK REFERENCE (URLs that haven't already been used in the intro or body).
-- 0-1 external citation (optional).
-
-⚠️ WORD COUNT: Final Thoughts is ${FINAL_TARGET_WORDS.min}-${FINAL_TARGET_WORDS.max} words. The FAQ section is additional (3-5 Qs at 2-3 sentences each). Do not exceed.
+- 0-1 external citation (optional). Any statistic still needs a source.
 
 ${baseRules}
 
@@ -287,21 +344,19 @@ ${mainText}`;
       main: countWords(mainText),
       finalThoughts: countWords(finalText),
     },
+    sectionTargets: {
+      intro: budgets.introTarget,
+      main: budgets.mainTarget,
+      finalThoughts: budgets.finalTarget,
+    },
   };
 
   send?.({
     type: "status",
     stage: stageName,
     step: "stitched",
-    message: `Stitched 3 sections: ${result.sectionWordCounts.intro} + ${result.sectionWordCounts.main} + ${result.sectionWordCounts.finalThoughts} words`,
+    message: `Stitched 3 sections: ${result.sectionWordCounts.intro} + ${result.sectionWordCounts.main} + ${result.sectionWordCounts.finalThoughts} words (target ${targetWordCount})`,
   });
-
-  // Nudge: user requested 3-agent writer ignore the incoming target word
-  // count and stick to section budgets. If the caller passed wordCount we
-  // honor it by scaling only the final Final-Thoughts target — but by
-  // default the three-agent pipeline produces roughly 1,200-1,550 total
-  // body words which is a normal mid-length article.
-  void wordCount;
 
   return result;
 }

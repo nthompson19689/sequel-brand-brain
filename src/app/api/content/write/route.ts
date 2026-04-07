@@ -53,7 +53,7 @@ export async function POST(request: Request) {
 
         // Persist the stitched draft
         if (supabase && postId) {
-          await supabase
+          const { error: updateErr } = await supabase
             .from("content_posts")
             .update({
               draft: result.draft,
@@ -61,6 +61,12 @@ export async function POST(request: Request) {
               status: "draft_complete",
             })
             .eq("id", postId);
+          if (updateErr) {
+            console.error(
+              "[api/content/write] Supabase update failed:",
+              updateErr
+            );
+          }
         }
 
         send({

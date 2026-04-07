@@ -24,6 +24,12 @@ import {
   EDITOR_IDENTITY,
   KILL_LIST_FOR_EDITOR,
 } from "@/lib/content/prompts";
+import {
+  FORBIDDEN_CITATION_DOMAINS,
+  FORBIDDEN_DOMAINS_PROMPT_LINE,
+  SOURCE_CITATION_RULES,
+  stripForbiddenLinks,
+} from "@/lib/content/brand-rules";
 
 type SendFn = (data: Record<string, unknown>) => void;
 
@@ -51,6 +57,7 @@ export interface EditorPipelineResult {
   externalLinksPreservedAfterEdit: string[];
   externalLinksDropped: string[];
   externalLinksRecovered: string[];
+  forbiddenLinksStripped: string[];
   violations: ReturnType<typeof scanBannedPatterns>;
 }
 
@@ -111,7 +118,7 @@ export async function runEditorPipeline(
 ): Promise<EditorPipelineResult> {
   const {
     claude,
-    draft,
+    draft: rawDraft,
     wordCount,
     send,
     stageName = "edit",
@@ -121,6 +128,23 @@ export async function runEditorPipeline(
   const targetWC = wordCount || 1500;
   const minWords = Math.round(targetWC * 0.9);
   const maxWords = Math.round(targetWC * 1.1);
+
+  // ══════════════════════════════════════════════════════════════
+  // PRE-PASS: strip forbidden competitor citations BEFORE the editor
+  // ever sees the draft. This guarantees they can't survive the run
+  // even if the model somehow reintroduces them.
+  // ══════════════════════════════════════════════════════════════
+  const { cleaned: preCleanedDraft, removed: removedForbiddenLinks } =
+    stripForbiddenLinks(rawDraft);
+  const draft = preCleanedDraft;
+  if (removedForbiddenLinks.length > 0) {
+    send?.({
+      type: "status",
+      stage: stageName,
+      step: "forbidden_removed",
+      message: `Pre-stripped ${removedForbiddenLinks.length} forbidden competitor link${removedForbiddenLinks.length === 1 ? "" : "s"}: ${removedForbiddenLinks.join(", ")}`,
+    });
+  }
 
   // Build cached editor system blocks — shared across all editor calls
   const { blocks: baseBlocks } = await buildSystemBlocks({
@@ -201,7 +225,7 @@ export async function runEditorPipeline(
     ...baseBlocks,
     {
       type: "text" as const,
-      text: `${EDITOR_IDENTITY}\n\n${KILL_LIST_FOR_EDITOR}\n\nYou are performing Call 1 of 2: the FAST violation scan. Output ONLY a compact edit list. Do NOT reproduce the article. Be concise.\n\n⚠️ DO NOT propose ANY edit that removes, rewrites, or deletes an external citation URL. External citations are PROTECTED. If you see an external URL in the article, it MUST stay in the final version, exactly as-is.`,
+      text: `${EDITOR_IDENTITY}\n\n${KILL_LIST_FOR_EDITOR}\n\nYou are performing Call 1 of 2: the FAST violation scan. Output ONLY a compact edit list. Do NOT reproduce the article. Be concise.\n\n⚠️ DO NOT propose ANY edit that removes, rewrites, or deletes an external citation URL. External citations are PROTECTED. If you see an external URL in the article, it MUST stay in the final version, exactly as-is.\n\n${FORBIDDEN_DOMAINS_PROMPT_LINE}\n\n${SOURCE_CITATION_RULES}`,
     },
   ];
 
@@ -236,6 +260,9 @@ CHECK FOR:
 - Passive voice
 - Setup sentences that announce the next sentence
 - PRESERVE: humor, asides, personality, ALL external links (see Required external URLs list above — DO NOT suggest removing any of them)
+- 🔒 UNSOURCED STATISTICS — for every number, percentage, dollar amount, multiplier, or industry claim NOT attached to a source URL in the same sentence, propose a FIND/REPLACE that either (a) rewrites the sentence as a qualitative observation with no number, or (b) flags the sentence for removal. No unsourced stat may survive.
+- 🔒 UNSOURCED "WE'VE SEEN" CLAIMS — if a sentence says "we've seen", "we've found", "our team has", or similar with a specific number but no link to a case study, propose a rewrite that either removes the number or replaces it with a qualitative observation.
+- 🚫 FORBIDDEN COMPETITOR LINKS — any link to ${FORBIDDEN_CITATION_DOMAINS.join(", ")} has already been pre-stripped from the draft. Do NOT reinsert citations to these domains under any circumstance.
 
 End with a one-line summary: "X edits found."
 
@@ -283,6 +310,10 @@ Every external (non-${internalDomainSubstring}) URL in the original article MUST
 REQUIRED EXTERNAL URLS THAT MUST APPEAR VERBATIM IN YOUR OUTPUT:
 ${externalUrlList}
 
+${FORBIDDEN_DOMAINS_PROMPT_LINE}
+
+${SOURCE_CITATION_RULES}
+
 RULES:
 1. Apply every FIND/REPLACE edit from the edit list.
 2. ZERO kill list phrases remaining after edits.
@@ -297,6 +328,8 @@ RULES:
 11. At least 2 sections with 400+ words of sustained prose.
 12. Primary keyword in H1, first 100 words, and at least 2 H2s.
 13. WORD COUNT TARGET: ${targetWC} words (±10% = ${minWords}-${maxWords}). The final output MUST be within this range.${wordCountDirective}
+14. ZERO forbidden competitor citations. If the edit list proposes one, ignore it.
+15. EVERY statistic in the output MUST carry a source URL in the same sentence. If the edit list missed an unsourced number, YOU MUST either rewrite the sentence without the number or add a source. Unsourced stats are a failure.
 
 Output: the COMPLETE final article ONLY. No commentary, no edit markers, no meta text.`,
     },
@@ -435,6 +468,26 @@ ${cleanDraft}`,
     }
   }
 
+  // ══════════════════════════════════════════════════════════════
+  // POST-PASS: defense-in-depth strip of any forbidden competitor
+  // link that somehow got reintroduced. This runs AFTER the recovery
+  // pass so we can't accidentally recover a forbidden URL.
+  // ══════════════════════════════════════════════════════════════
+  const forbiddenStripped = [...removedForbiddenLinks];
+  {
+    const postClean = stripForbiddenLinks(cleanDraft);
+    if (postClean.removed.length > 0) {
+      cleanDraft = postClean.cleaned;
+      forbiddenStripped.push(...postClean.removed);
+      send?.({
+        type: "status",
+        stage: stageName,
+        step: "forbidden_post_strip",
+        message: `Post-stripped ${postClean.removed.length} forbidden competitor link${postClean.removed.length === 1 ? "" : "s"}`,
+      });
+    }
+  }
+
   // ── Quality gates on the final output ──
   send?.({
     type: "status",
@@ -469,6 +522,7 @@ ${cleanDraft}`,
     externalLinksPreservedAfterEdit: externalFinal,
     externalLinksDropped: stillDropped,
     externalLinksRecovered: recovered,
+    forbiddenLinksStripped: forbiddenStripped,
     violations,
   };
 }
