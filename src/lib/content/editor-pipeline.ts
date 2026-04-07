@@ -126,8 +126,11 @@ export async function runEditorPipeline(
   } = opts;
 
   const targetWC = wordCount || 1500;
-  const minWords = Math.round(targetWC * 0.9);
-  const maxWords = Math.round(targetWC * 1.1);
+  // ±5% tolerance is tighter than the old ±10%. The editor now treats
+  // anything over +5% as "must trim" and anything over +10% as a hard
+  // failure that requires aggressive cutting.
+  const minWords = Math.round(targetWC * 0.95);
+  const maxWords = Math.round(targetWC * 1.05);
 
   // ══════════════════════════════════════════════════════════════
   // PRE-PASS: strip forbidden competitor citations BEFORE the editor
@@ -291,9 +294,12 @@ ${draft}`,
   });
 
   const currentDraftWords = draft.split(/\s+/).filter(Boolean).length;
-  const isOverTarget = currentDraftWords > Math.round(targetWC * 1.1);
+  // Trigger the trim directive even at 5% over (was 10%). The writer's
+  // section budgets already aim for the target, so the editor should
+  // treat any overshoot as a cut job.
+  const isOverTarget = currentDraftWords > maxWords;
   const wordCountDirective = isOverTarget
-    ? `\n\n⚠️ WORD COUNT ENFORCEMENT — HIGHEST PRIORITY ⚠️\nThe draft is ${currentDraftWords} words but the target is ${targetWC} words (±10% = ${minWords}-${maxWords}). The draft is ${currentDraftWords - targetWC} words OVER. You MUST cut it down to within the ${minWords}-${maxWords} range.\n\nHow to cut:\n- Remove the weakest H2 section entirely if needed\n- Collapse redundant examples (one strong example > three weak ones)\n- Tighten data sections and cut padding\n- Shorten FAQ answers to 2-3 sentences each\n- Cut setup/warmup sentences that delay the point\n- Reduce number of FAQ questions if over 5\n- DO NOT cut internal links, external citations, or personality/voice\n- After cutting, count your words. If still over ${maxWords}, cut more.`
+    ? `\n\n⚠️⚠️⚠️ WORD COUNT ENFORCEMENT — HIGHEST PRIORITY ⚠️⚠️⚠️\nThe draft is ${currentDraftWords} words but the target is ${targetWC} words (±5% = ${minWords}-${maxWords}). The draft is ${currentDraftWords - targetWC} words OVER. You MUST cut it down to ${minWords}-${maxWords}.\n\nHow to cut:\n- Remove the weakest H2 section entirely if needed\n- Collapse redundant examples (one strong example beats three weak ones)\n- Tighten data sections and cut padding\n- Shorten FAQ answers to 2 sentences each\n- Cut setup/warmup sentences that delay the point\n- Reduce number of FAQ questions if over 4\n- DO NOT cut internal links, external citations, or personality/voice\n- After cutting, count your words. If still over ${maxWords}, cut more aggressively.\n- The output word count MUST land in [${minWords}, ${maxWords}]. This is not optional.`
     : "";
 
   const call2Blocks = [
@@ -327,7 +333,7 @@ RULES:
 10. FAQ section: ## FAQ heading, ### H3 per question (plain text, no numbers/bold), prose answers.
 11. At least 2 sections with 400+ words of sustained prose.
 12. Primary keyword in H1, first 100 words, and at least 2 H2s.
-13. WORD COUNT TARGET: ${targetWC} words (±10% = ${minWords}-${maxWords}). The final output MUST be within this range.${wordCountDirective}
+13. WORD COUNT TARGET: ${targetWC} words (±5% = ${minWords}-${maxWords}). The final output MUST be within this range. Overshooting is a failure.${wordCountDirective}
 14. ZERO forbidden competitor citations. If the edit list proposes one, ignore it.
 15. EVERY statistic in the output MUST carry a source URL in the same sentence. If the edit list missed an unsourced number, YOU MUST either rewrite the sentence without the number or add a source. Unsourced stats are a failure.
 

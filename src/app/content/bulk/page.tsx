@@ -265,13 +265,55 @@ export default function BulkBatchPage() {
           });
           successCount++;
         } else {
-          throw new Error("Pipeline ended without a complete event");
+          // Stream ended without a "complete" event. This can happen when
+          // Vercel cuts the serverless function off mid-stream, or when
+          // the network drops before the last event flushes. Don't give
+          // up — the pipeline may still have saved state to Supabase.
+          // Fall through to the DB status check below.
+          throw new Error(
+            "Stream ended without a complete event — checking DB for saved state..."
+          );
         }
       } catch (err) {
+        // Before marking as failed, verify the DB state. The pipeline
+        // saves state after every stage (brief → draft → edit), so the
+        // row may actually be done even if the stream died.
+        try {
+          const checkRes = await fetch(`/api/content`);
+          if (checkRes.ok) {
+            const checkData = await checkRes.json();
+            const dbPost = (checkData.posts || []).find(
+              (p: { id: string; status: string; word_count: number | null }) =>
+                p.id === postId
+            );
+            if (dbPost?.status === "edited") {
+              setRowState(row.id, {
+                status: "complete",
+                message: `Done (${dbPost.word_count || "?"} words, recovered from DB)`,
+                wordCount: dbPost.word_count || 0,
+              });
+              successCount++;
+              continue;
+            }
+            if (dbPost?.status === "draft_complete") {
+              setRowState(row.id, {
+                status: "error",
+                message: "Write complete, edit failed",
+                error: err instanceof Error ? err.message : String(err),
+                postId,
+              });
+              failCount++;
+              continue;
+            }
+          }
+        } catch {
+          /* fall through */
+        }
         setRowState(row.id, {
           status: "error",
           message: "Pipeline failed",
           error: err instanceof Error ? err.message : String(err),
+          postId,
         });
         failCount++;
       }
@@ -435,7 +477,7 @@ export default function BulkBatchPage() {
                           <span className={`inline-block px-2 py-0.5 text-xs font-medium rounded-full ${statusBadge(state)}`}>
                             {state?.status || "pending"}
                           </span>
-                          {state?.postId && state.status === "complete" && (
+                          {state?.postId && (
                             <button
                               onClick={() => router.push(`/content/${state.postId}`)}
                               className="text-xs text-brand-500 hover:text-brand-600"

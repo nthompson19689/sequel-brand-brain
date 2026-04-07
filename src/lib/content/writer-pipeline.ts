@@ -67,11 +67,24 @@ export function allocateSectionBudgets(target: number) {
   return { introTarget, mainTarget, finalTarget };
 }
 
-function wordRange(target: number, tolerance = 0.1) {
+function wordRange(target: number, tolerance = 0.05) {
   return {
     min: Math.round(target * (1 - tolerance)),
     max: Math.round(target * (1 + tolerance)),
   };
+}
+
+/**
+ * Convert a word budget into a max_tokens value that physically prevents
+ * the model from overshooting.
+ *
+ * English prose averages ~1.33 tokens per word, so a 1.5x ratio gives
+ * a small safety margin without letting the model write 2x the target.
+ * A fixed 150-token buffer absorbs the meta/slug/H1 overhead on the
+ * intro agent.
+ */
+function wordBudgetToMaxTokens(wordBudget: number, bufferTokens = 150) {
+  return Math.round(wordBudget * 1.5) + bufferTokens;
 }
 
 /**
@@ -207,9 +220,10 @@ Anchor text is 2-4 natural words woven into a sentence. The reader should not no
   // ══════════════════════════════════════════════════════════════
   const introPrompt = `You are the INTRODUCTION AGENT (agent 1 of 3).
 
-OVERALL ARTICLE TARGET: ${targetWordCount} words. You are writing the opening ONLY.
+⚠️⚠️⚠️ HARD WORD LIMIT: ${budgets.introTarget} WORDS ⚠️⚠️⚠️
+Acceptable range: ${introRange.min}-${introRange.max}. Going over ${introRange.max} is a failure — the output will be cut. COUNT AS YOU WRITE. If you reach ${budgets.introTarget} words, STOP mid-thought if you have to.
 
-YOUR SECTION BUDGET: ${budgets.introTarget} words (${introRange.min}-${introRange.max} acceptable). Do not exceed ${introRange.max}. Count as you write.
+OVERALL ARTICLE TARGET: ${targetWordCount} words (this article is being split across 3 agents — you handle ONLY the opening).
 
 OUTPUT FORMAT (exactly this, in order, nothing else):
 META: [under 155 chars, includes the primary keyword]
@@ -236,7 +250,9 @@ ${brief}`;
     label: "intro",
     humanLabel: "introduction",
     userPrompt: introPrompt,
-    maxTokens: 2048,
+    // Tight cap: physically prevents the intro from writing more than
+    // ~1.5x its word budget. The 250-token buffer covers META/SLUG/H1.
+    maxTokens: wordBudgetToMaxTokens(budgets.introTarget, 250),
   });
 
   // ══════════════════════════════════════════════════════════════
@@ -244,9 +260,15 @@ ${brief}`;
   // ══════════════════════════════════════════════════════════════
   const mainPrompt = `You are the MAIN ARTICLE AGENT (agent 2 of 3).
 
-OVERALL ARTICLE TARGET: ${targetWordCount} words. The intro has already been written (see below). Your job is to write ONLY the body of the article — the H2 sections that deliver on the intro's promise.
+⚠️⚠️⚠️ HARD WORD LIMIT: ${budgets.mainTarget} WORDS ⚠️⚠️⚠️
+Acceptable range: ${mainRange.min}-${mainRange.max}. Going over ${mainRange.max} is a failure. The token cap WILL cut you off if you try. COUNT AS YOU WRITE. When you hit ${budgets.mainTarget} words, wrap the current sentence and stop immediately, even if you planned more sections.
 
-YOUR SECTION BUDGET: ${budgets.mainTarget} words (${mainRange.min}-${mainRange.max} acceptable). This is the body alone, not counting the intro or final thoughts. Do NOT exceed ${mainRange.max} words. Count as you write. If you're approaching ${mainRange.max}, wrap the current section and stop.
+BEFORE YOU START WRITING, DO THIS:
+1. Count the H2 sections the brief specifies for the body.
+2. Divide ${budgets.mainTarget} by that number — that's your per-H2 budget.
+3. Allocate words per H2 and stick to the allocation. If a section runs long, cut the next one shorter.
+
+OVERALL ARTICLE TARGET: ${targetWordCount} words. The intro has already been written (see below). Your job is to write ONLY the body of the article — the H2 sections that deliver on the intro's promise. The final-thoughts agent handles the wrap-up.
 
 DO NOT:
 - Rewrite or repeat the intro.
@@ -271,18 +293,12 @@ ${brief}
 === INTRO ALREADY WRITTEN (do not repeat, continue naturally) ===
 ${introText}`;
 
-  // Token budget: roughly 1.5x the target word count, capped for safety.
-  // 1000 words ≈ 1400 tokens, so we give headroom to avoid truncation.
-  const mainMaxTokens = Math.min(
-    8192,
-    Math.max(4096, Math.round(budgets.mainTarget * 2.5))
-  );
-
+  // Tight token cap — physically prevents overshoot.
   const mainText = await runAgent({
     label: "main",
     humanLabel: "main article body",
     userPrompt: mainPrompt,
-    maxTokens: mainMaxTokens,
+    maxTokens: wordBudgetToMaxTokens(budgets.mainTarget, 200),
   });
 
   // ══════════════════════════════════════════════════════════════
@@ -290,9 +306,13 @@ ${introText}`;
   // ══════════════════════════════════════════════════════════════
   const finalPrompt = `You are the FINAL THOUGHTS AGENT (agent 3 of 3).
 
-OVERALL ARTICLE TARGET: ${targetWordCount} words. The intro and main body are already written (see below). Your job is to close the article with a "Final Thoughts" section AND the FAQ.
+⚠️⚠️⚠️ HARD WORD LIMITS ⚠️⚠️⚠️
+- Final Thoughts prose: ${budgets.finalTarget} words (${finalRange.min}-${finalRange.max} acceptable). Do NOT exceed ${finalRange.max}.
+- FAQ section: 3-5 questions, 2-3 sentences per answer, max 250 total FAQ words.
 
-YOUR SECTION BUDGET: ${budgets.finalTarget} words for the Final Thoughts prose (${finalRange.min}-${finalRange.max} acceptable). The FAQ is ADDITIONAL (3-5 questions, 2-3 sentences each). Do not exceed the Final Thoughts budget on the prose side.
+COUNT AS YOU WRITE. Going over is a failure. The token cap WILL cut you off.
+
+OVERALL ARTICLE TARGET: ${targetWordCount} words. The intro and main body are already written (see below). Your job is to close the article with a "Final Thoughts" section AND the FAQ.
 
 DO NOT:
 - Rewrite or repeat anything the intro or main body already said.
@@ -322,7 +342,8 @@ ${mainText}`;
     label: "final_thoughts",
     humanLabel: "final thoughts + FAQ",
     userPrompt: finalPrompt,
-    maxTokens: 3072,
+    // Final thoughts + FAQ: budget for the prose + ~300 words of FAQ + buffer.
+    maxTokens: wordBudgetToMaxTokens(budgets.finalTarget + 300, 250),
   });
 
   // ══════════════════════════════════════════════════════════════

@@ -215,7 +215,7 @@ Use this EXACT format:
             briefContent.match(/### Title:\s*(.+)/) ||
             briefContent.match(/#### H1:\s*(.+)/);
           const title = titleMatch ? titleMatch[1].trim() : keyword;
-          await supabase
+          const { error: briefUpdateErr } = await supabase
             .from("content_posts")
             .update({
               brief: briefContent,
@@ -223,6 +223,21 @@ Use this EXACT format:
               status: "brief_approved",
             })
             .eq("id", postId);
+          if (briefUpdateErr) {
+            console.error(
+              "[api/content/batch] brief save failed:",
+              briefUpdateErr
+            );
+            send({
+              type: "status",
+              stage: "brief",
+              message: `Brief save failed: ${briefUpdateErr.message}`,
+            });
+          } else {
+            console.log(
+              `[api/content/batch] brief saved (${briefContent.length} chars) for post ${postId}`
+            );
+          }
         }
 
         // ═══════════════════════════════════════
@@ -255,7 +270,7 @@ Use this EXACT format:
 
         // Save draft
         if (supabase && postId) {
-          await supabase
+          const { error: draftUpdateErr } = await supabase
             .from("content_posts")
             .update({
               draft: draftContent,
@@ -263,6 +278,21 @@ Use this EXACT format:
               status: "draft_complete",
             })
             .eq("id", postId);
+          if (draftUpdateErr) {
+            console.error(
+              "[api/content/batch] draft save failed:",
+              draftUpdateErr
+            );
+            send({
+              type: "status",
+              stage: "write",
+              message: `Draft save failed: ${draftUpdateErr.message}`,
+            });
+          } else {
+            console.log(
+              `[api/content/batch] draft saved (${draftContent.length} chars, ${draftContent.split(/\s+/).filter(Boolean).length} words) for post ${postId}`
+            );
+          }
         }
 
         // ═══════════════════════════════════════

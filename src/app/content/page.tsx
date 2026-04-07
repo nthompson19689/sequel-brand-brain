@@ -60,14 +60,82 @@ export default function ContentDashboard() {
   const [view, setView] = useState<"board" | "list">("list");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  async function refreshPosts() {
+    try {
+      const res = await fetch("/api/content");
+      const data = await res.json();
+      setPosts(data.posts || []);
+    } catch {
+      /* ignore */
+    }
+  }
 
   useEffect(() => {
-    fetch("/api/content")
-      .then((r) => r.json())
-      .then((d) => setPosts(d.posts || []))
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    refreshPosts().finally(() => setLoading(false));
   }, []);
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll(ids: string[]) {
+    setSelectedIds((prev) => {
+      const allSelected = ids.every((id) => prev.has(id));
+      if (allSelected) return new Set();
+      return new Set(ids);
+    });
+  }
+
+  async function deletePost(id: string) {
+    if (!confirm("Delete this post? This cannot be undone.")) return;
+    try {
+      const res = await fetch(`/api/content?id=${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Delete failed");
+      setPosts((prev) => prev.filter((p) => p.id !== id));
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    } catch (err) {
+      alert(`Delete failed: ${err instanceof Error ? err.message : "unknown"}`);
+    }
+  }
+
+  async function deleteSelected() {
+    if (selectedIds.size === 0) return;
+    if (
+      !confirm(
+        `Delete ${selectedIds.size} post${selectedIds.size === 1 ? "" : "s"}? This cannot be undone.`
+      )
+    )
+      return;
+    setIsDeleting(true);
+    const ids = Array.from(selectedIds);
+    let failed = 0;
+    for (const id of ids) {
+      try {
+        const res = await fetch(`/api/content?id=${id}`, { method: "DELETE" });
+        if (!res.ok) throw new Error(res.statusText);
+      } catch {
+        failed++;
+      }
+    }
+    await refreshPosts();
+    setSelectedIds(new Set());
+    setIsDeleting(false);
+    if (failed > 0) {
+      alert(`Deleted ${ids.length - failed}, failed ${failed}`);
+    }
+  }
 
   // Filter and search
   const filtered = posts.filter((p) => {
@@ -199,14 +267,58 @@ export default function ContentDashboard() {
       ) : view === "list" ? (
         /* ═══ LIST VIEW ═══ */
         <div className="bg-white rounded-xl border border-border overflow-hidden">
+          {/* Bulk action bar */}
+          {selectedIds.size > 0 && (
+            <div className="flex items-center justify-between px-4 py-2.5 bg-brand-50 border-b border-brand-200">
+              <span className="text-xs font-medium text-brand-700">
+                {selectedIds.size} post{selectedIds.size === 1 ? "" : "s"} selected
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setSelectedIds(new Set())}
+                  disabled={isDeleting}
+                  className="text-xs font-medium text-body hover:text-heading px-2 py-1"
+                >
+                  Clear
+                </button>
+                <button
+                  onClick={deleteSelected}
+                  disabled={isDeleting}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 disabled:opacity-50"
+                >
+                  {isDeleting ? (
+                    <>
+                      <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Deleting...
+                    </>
+                  ) : (
+                    <>🗑️ Delete selected</>
+                  )}
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Table header */}
-          <div className="grid grid-cols-12 gap-4 px-4 py-2.5 bg-gray-50 border-b border-border text-[11px] font-semibold text-body uppercase tracking-wider">
-            <div className="col-span-5">Title / Keyword</div>
+          <div className="grid grid-cols-12 gap-4 px-4 py-2.5 bg-gray-50 border-b border-border text-[11px] font-semibold text-body uppercase tracking-wider items-center">
+            <div className="col-span-1 flex items-center">
+              <input
+                type="checkbox"
+                checked={
+                  sorted.length > 0 &&
+                  sorted.every((p) => selectedIds.has(p.id))
+                }
+                onChange={() => toggleSelectAll(sorted.map((p) => p.id))}
+                className="h-4 w-4 rounded border-gray-300 text-brand-500 focus:ring-brand-400"
+                aria-label="Select all"
+              />
+            </div>
+            <div className="col-span-4">Title / Keyword</div>
             <div className="col-span-2">Status</div>
             <div className="col-span-1">Type</div>
             <div className="col-span-1 text-right">Words</div>
             <div className="col-span-2 text-right">Updated</div>
-            <div className="col-span-1"></div>
+            <div className="col-span-1 text-right">Actions</div>
           </div>
 
           {sorted.length === 0 ? (
@@ -217,44 +329,108 @@ export default function ContentDashboard() {
             <div className="divide-y divide-border">
               {sorted.map((post) => {
                 const meta = STATUS_META[post.status] || STATUS_META.queued;
+                const isSelected = selectedIds.has(post.id);
                 return (
-                  <Link
+                  <div
                     key={post.id}
-                    href={`/content/${post.id}`}
-                    className="grid grid-cols-12 gap-4 px-4 py-3 items-center hover:bg-gray-50 transition-colors group"
+                    className={`grid grid-cols-12 gap-4 px-4 py-3 items-center transition-colors group ${
+                      isSelected ? "bg-brand-50/60" : "hover:bg-gray-50"
+                    }`}
                   >
-                    <div className="col-span-5 min-w-0">
+                    <div className="col-span-1 flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleSelect(post.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="h-4 w-4 rounded border-gray-300 text-brand-500 focus:ring-brand-400"
+                        aria-label={`Select ${post.title || post.primary_keyword}`}
+                      />
+                    </div>
+                    <Link
+                      href={`/content/${post.id}`}
+                      className="col-span-4 min-w-0"
+                    >
                       <p className="text-sm font-medium text-heading truncate group-hover:text-brand-600 transition-colors">
                         {post.title || post.primary_keyword}
                       </p>
                       {post.title && (
-                        <p className="text-xs text-body truncate mt-0.5">{post.primary_keyword}</p>
+                        <p className="text-xs text-body truncate mt-0.5">
+                          {post.primary_keyword}
+                        </p>
                       )}
-                    </div>
-                    <div className="col-span-2">
-                      <span className={`inline-block text-[10px] font-medium px-2 py-0.5 rounded-full ${meta.color}`}>
+                    </Link>
+                    <Link
+                      href={`/content/${post.id}`}
+                      className="col-span-2"
+                    >
+                      <span
+                        className={`inline-block text-[10px] font-medium px-2 py-0.5 rounded-full ${meta.color}`}
+                      >
                         {meta.label}
                       </span>
-                    </div>
-                    <div className="col-span-1">
+                    </Link>
+                    <Link
+                      href={`/content/${post.id}`}
+                      className="col-span-1"
+                    >
                       {post.post_type && (
-                        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${TYPE_BADGE[post.post_type] || "bg-gray-100 text-gray-600"}`}>
+                        <span
+                          className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
+                            TYPE_BADGE[post.post_type] ||
+                            "bg-gray-100 text-gray-600"
+                          }`}
+                        >
                           {post.post_type}
                         </span>
                       )}
-                    </div>
-                    <div className="col-span-1 text-right text-xs text-body">
-                      {post.word_count && post.word_count > 0 ? `${post.word_count.toLocaleString()}` : "—"}
-                    </div>
-                    <div className="col-span-2 text-right text-xs text-body">
+                    </Link>
+                    <Link
+                      href={`/content/${post.id}`}
+                      className="col-span-1 text-right text-xs text-body"
+                    >
+                      {post.word_count && post.word_count > 0
+                        ? `${post.word_count.toLocaleString()}`
+                        : "—"}
+                    </Link>
+                    <Link
+                      href={`/content/${post.id}`}
+                      className="col-span-2 text-right text-xs text-body"
+                    >
                       {timeAgo(post.updated_at || post.created_at)}
+                    </Link>
+                    <div className="col-span-1 flex items-center justify-end gap-1">
+                      <Link
+                        href={`/content/${post.id}`}
+                        className="text-xs text-brand-500 font-medium opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        Open
+                      </Link>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deletePost(post.id);
+                        }}
+                        className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all p-1"
+                        aria-label="Delete post"
+                        title="Delete"
+                      >
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          strokeWidth={2}
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+                          />
+                        </svg>
+                      </button>
                     </div>
-                    <div className="col-span-1 text-right">
-                      <span className="text-xs text-brand-500 opacity-0 group-hover:opacity-100 transition-opacity font-medium">
-                        Open →
-                      </span>
-                    </div>
-                  </Link>
+                  </div>
                 );
               })}
             </div>
