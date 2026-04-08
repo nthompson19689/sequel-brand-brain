@@ -5,8 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { markdownToHtml } from "@/lib/markdown-to-html";
 import type { RichTextEditorRef } from "@/components/editor/RichTextEditor";
-import MicButton from "@/components/ui/MicButton";
-import { useSpeechToText } from "@/hooks/useSpeechToText";
+import VoiceProcessor from "@/components/ui/VoiceProcessor";
 
 const RichTextEditor = dynamic(() => import("@/components/editor/RichTextEditor"), { ssr: false });
 
@@ -56,10 +55,6 @@ export default function ContentPostPage() {
   const [editorHtml, setEditorHtml] = useState("");
   const editorRef = useRef<RichTextEditorRef>(null);
   const [refineInput, setRefineInput] = useState("");
-  const { isListening: refineListening, supported: refineMicSupported, toggle: toggleRefineMic } = useSpeechToText({
-    onTranscript: (text) => setRefineInput(text),
-    currentValue: refineInput,
-  });
   const [isRefining, setIsRefining] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -559,10 +554,10 @@ export default function ContentPostPage() {
                   <form onSubmit={handleRefine} className="flex items-center gap-2">
                     <div className="flex-1 relative">
                       <input type="text" value={refineInput} onChange={(e) => setRefineInput(e.target.value)} placeholder='Refine: "Make it shorter", "Add examples", "More data"...'
-                        disabled={isRefining} className={`w-full rounded-xl border bg-white px-4 py-2.5 ${refineMicSupported ? "pr-10" : "pr-4"} text-sm focus:outline-none focus:ring-1 disabled:opacity-50 transition-colors ${
-                          refineListening ? "border-red-400 focus:border-red-400 focus:ring-red-400" : "border-gray-300 focus:border-brand-400 focus:ring-brand-400"
-                        }`} />
-                      <MicButton isListening={refineListening} supported={refineMicSupported} onClick={toggleRefineMic} disabled={isRefining} size="sm" className="absolute right-2 top-1.5" />
+                        disabled={isRefining} className="w-full rounded-xl border bg-white px-4 py-2.5 pr-28 text-sm focus:outline-none focus:ring-1 disabled:opacity-50 transition-colors border-gray-300 focus:border-brand-400 focus:ring-brand-400" />
+                      <div className="absolute right-2 top-1.5">
+                        <VoiceProcessor value={refineInput} onChange={setRefineInput} context="content" disabled={isRefining} micSize="sm" />
+                      </div>
                     </div>
                     <button type="submit" disabled={!refineInput.trim() || isRefining}
                       className="inline-flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium text-white bg-brand-500 rounded-xl hover:bg-brand-600 disabled:opacity-40 transition-colors shrink-0">

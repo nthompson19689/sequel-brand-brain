@@ -1,9 +1,8 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import MicButton from "@/components/ui/MicButton";
-import { useSpeechToText } from "@/hooks/useSpeechToText";
+import VoiceProcessor from "@/components/ui/VoiceProcessor";
 
 const POST_TYPES = [
   { value: "pillar", label: "Pillar", desc: "Comprehensive, 2500+ words" },
@@ -18,10 +17,6 @@ export default function ImportPage() {
 
   // Single mode
   const [keyword, setKeyword] = useState("");
-  const { isListening: kwListening, supported: kwMicSupported, toggle: toggleKwMic } = useSpeechToText({
-    onTranscript: useCallback((text: string) => setKeyword(text), []),
-    currentValue: keyword,
-  });
   const [postType, setPostType] = useState("supporting");
   const [searchIntent, setSearchIntent] = useState("informational");
   const [wordCount, setWordCount] = useState("1800");
@@ -129,10 +124,10 @@ export default function ImportPage() {
             <label className="block text-sm font-medium text-gray-700 mb-1">Primary Keyword</label>
             <div className="relative">
               <input type="text" value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="e.g., B2B content strategy"
-                className={`w-full rounded-xl border bg-white px-4 py-2.5 ${kwMicSupported ? "pr-10" : "pr-4"} text-sm focus:outline-none focus:ring-1 transition-colors ${
-                  kwListening ? "border-red-400 focus:border-red-400 focus:ring-red-400" : "border-gray-300 focus:border-brand-400 focus:ring-brand-400"
-                }`} />
-              <MicButton isListening={kwListening} supported={kwMicSupported} onClick={toggleKwMic} size="sm" className="absolute right-2 top-1.5" />
+                className="w-full rounded-xl border bg-white px-4 py-2.5 pr-28 text-sm focus:outline-none focus:ring-1 transition-colors border-gray-300 focus:border-brand-400 focus:ring-brand-400" />
+              <div className="absolute right-2 top-1.5">
+                <VoiceProcessor value={keyword} onChange={setKeyword} context="generic" micSize="sm" />
+              </div>
             </div>
           </div>
 

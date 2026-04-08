@@ -3,8 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { SLIDE_LAYOUTS, newSlide, type Slide, type Deck, type PresentationTheme, type ThemeColors, type ThemeFonts, type ElementPosition } from "@/lib/decks";
-import MicButton from "@/components/ui/MicButton";
-import { useSpeechToText } from "@/hooks/useSpeechToText";
+import VoiceProcessor from "@/components/ui/VoiceProcessor";
 
 // ─── Theme Helpers ───────────────────────────────────────────────────────────
 
@@ -1040,10 +1039,7 @@ export default function DeckEditorPage() {
   const [chatLoading, setChatLoading] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  const { isListening, supported, toggle } = useSpeechToText({
-    onTranscript: (t) => setChatInput(t),
-    currentValue: chatInput,
-  });
+  // Voice input is handled by VoiceProcessor below.
 
   // Load deck
   useEffect(() => {
@@ -1146,7 +1142,6 @@ export default function DeckEditorPage() {
   async function handleChat(e: React.FormEvent) {
     e.preventDefault();
     if (!chatInput.trim() || !deck) return;
-    if (isListening) toggle();
 
     const msg = chatInput.trim();
     setChatInput("");
@@ -1387,11 +1382,11 @@ export default function DeckEditorPage() {
                 <input
                   type="text" value={chatInput} onChange={(e) => setChatInput(e.target.value)}
                   placeholder="Edit the deck..." disabled={chatLoading}
-                  className={`w-full rounded-xl border bg-[#252536] px-3 py-2.5 ${supported ? "pr-10" : "pr-3"} text-xs text-white placeholder-gray-600 focus:outline-none focus:ring-1 disabled:opacity-50 transition-colors ${
-                    isListening ? "border-red-400 focus:ring-red-400" : "border-[#3a3a4e] focus:border-purple-500 focus:ring-purple-500"
-                  }`}
+                  className="w-full rounded-xl border bg-[#252536] px-3 py-2.5 pr-28 text-xs text-white placeholder-gray-600 focus:outline-none focus:ring-1 disabled:opacity-50 transition-colors border-[#3a3a4e] focus:border-purple-500 focus:ring-purple-500"
                 />
-                <MicButton isListening={isListening} supported={supported} onClick={toggle} disabled={chatLoading} size="sm" className="absolute right-1.5 top-1.5" />
+                <div className="absolute right-1.5 top-1.5">
+                  <VoiceProcessor value={chatInput} onChange={setChatInput} context="chat" disabled={chatLoading} micSize="sm" />
+                </div>
               </div>
               <button type="submit" disabled={!chatInput.trim() || chatLoading}
                 className="w-8 h-8 flex items-center justify-center rounded-xl bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-40 transition-colors shrink-0">

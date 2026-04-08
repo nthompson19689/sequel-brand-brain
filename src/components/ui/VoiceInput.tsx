@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useCallback } from "react";
-import MicButton from "./MicButton";
-import { useSpeechToText } from "@/hooks/useSpeechToText";
+import React, { useCallback, useRef } from "react";
+import VoiceProcessor, {
+  type VoiceContext,
+} from "./VoiceProcessor";
 
 interface VoiceInputProps {
   /** "textarea" or "input" */
@@ -23,10 +24,23 @@ interface VoiceInputProps {
   autoFocus?: boolean;
   /** If provided, ref is forwarded to the underlying element */
   inputRef?: React.Ref<HTMLTextAreaElement | HTMLInputElement>;
+  /**
+   * Destination context for the AI voice cleanup layer. Tells the
+   * processing layer how to format the output (chat, content, email,
+   * generic). Defaults to "generic".
+   */
+  voiceContext?: VoiceContext;
+  /** Show the Dictate/Command mode toggle next to the mic. Default true. */
+  showVoiceModeToggle?: boolean;
 }
 
 /**
- * Drop-in replacement for <textarea> or <input> with a built-in mic button.
+ * Drop-in replacement for <textarea> or <input> with a built-in mic button
+ * AND a Whispr-Flow-style AI processing layer (Dictate + Command modes).
+ *
+ * When the user stops recording, the raw transcript is piped through
+ * /api/voice/process for brand-aligned cleanup (Dictate) or transformation
+ * of the selected/full text (Command).
  */
 export default function VoiceInput({
   as = "textarea",
@@ -43,83 +57,97 @@ export default function VoiceInput({
   onKeyDown,
   autoFocus,
   inputRef,
+  voiceContext = "generic",
+  showVoiceModeToggle = true,
 }: VoiceInputProps) {
-  const handleTranscript = useCallback(
-    (text: string) => onChange(text),
-    [onChange]
+  // Internal ref so we can read the current selection for Command mode
+  // even when the caller doesn't pass their own ref.
+  const internalRef = useRef<HTMLTextAreaElement | HTMLInputElement | null>(
+    null
   );
 
-  const { isListening, supported, toggle } = useSpeechToText({
-    onTranscript: handleTranscript,
-    currentValue: value,
-  });
+  const setRefs = useCallback(
+    (el: HTMLTextAreaElement | HTMLInputElement | null) => {
+      internalRef.current = el;
+      if (typeof inputRef === "function") {
+        (inputRef as (el: HTMLElement | null) => void)(el);
+      } else if (inputRef && "current" in inputRef) {
+        (inputRef as React.MutableRefObject<
+          HTMLTextAreaElement | HTMLInputElement | null
+        >).current = el;
+      }
+    },
+    [inputRef]
+  );
 
-  const borderClass = isListening
-    ? "border-red-400 focus-within:border-red-400 focus-within:ring-red-400"
-    : "border-border focus-within:border-brand-400 focus-within:ring-brand-400";
+  const getSelectedText = useCallback((): string => {
+    const el = internalRef.current;
+    if (!el) return "";
+    const start = (el as HTMLTextAreaElement).selectionStart ?? 0;
+    const end = (el as HTMLTextAreaElement).selectionEnd ?? 0;
+    if (start === end) return "";
+    return value.slice(start, end);
+  }, [value]);
 
-  const inputCls = `w-full bg-white text-sm text-ink focus:outline-none resize-y ${
-    micPosition === "inside" && supported ? "pr-12" : ""
-  } ${className}`;
+  const baseInputCls = `w-full bg-white text-sm text-ink focus:outline-none ${
+    as === "textarea" ? "resize-y" : ""
+  } ${micPosition === "inside" ? "pr-28" : ""} ${className}`;
 
   return (
     <div className={`relative ${wrapperClassName}`}>
       {as === "textarea" ? (
         <textarea
-          ref={inputRef as React.Ref<HTMLTextAreaElement>}
+          ref={setRefs as React.Ref<HTMLTextAreaElement>}
           id={id}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           rows={rows}
           disabled={disabled || false}
-          className={`rounded-xl border px-4 py-3 focus:ring-1 ${borderClass} ${inputCls}`}
+          className={`rounded-xl border border-border px-4 py-3 focus:ring-1 focus:border-brand-400 focus:ring-brand-400 ${baseInputCls}`}
           onKeyDown={onKeyDown}
           autoFocus={autoFocus}
         />
       ) : (
         <input
-          ref={inputRef as React.Ref<HTMLInputElement>}
+          ref={setRefs as React.Ref<HTMLInputElement>}
           id={id}
           type="text"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           disabled={disabled || false}
-          className={`rounded-xl border px-4 py-2.5 focus:ring-1 ${borderClass} ${inputCls}`}
+          className={`rounded-xl border border-border px-4 py-2.5 focus:ring-1 focus:border-brand-400 focus:ring-brand-400 ${baseInputCls}`}
           onKeyDown={onKeyDown}
           autoFocus={autoFocus}
         />
       )}
 
-      {supported && micPosition === "inside" && (
+      {micPosition === "inside" && (
         <div className="absolute right-2 top-2">
-          <MicButton
-            isListening={isListening}
-            supported={supported}
-            onClick={toggle}
+          <VoiceProcessor
+            value={value}
+            onChange={onChange}
+            context={voiceContext}
+            getSelectedText={getSelectedText}
+            showModeToggle={showVoiceModeToggle}
+            micSize={micSize}
             disabled={disabled}
-            size={micSize}
           />
         </div>
       )}
 
-      {supported && micPosition === "outside" && (
-        <MicButton
-          isListening={isListening}
-          supported={supported}
-          onClick={toggle}
+      {micPosition === "outside" && (
+        <VoiceProcessor
+          value={value}
+          onChange={onChange}
+          context={voiceContext}
+          getSelectedText={getSelectedText}
+          showModeToggle={showVoiceModeToggle}
+          micSize={micSize}
           disabled={disabled}
-          size={micSize}
-          className="ml-2 flex-shrink-0"
+          className="mt-2"
         />
-      )}
-
-      {isListening && (
-        <div className="mt-1.5 flex items-center gap-1.5 text-xs text-red-500">
-          <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
-          Listening...
-        </div>
       )}
     </div>
   );

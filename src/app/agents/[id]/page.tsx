@@ -10,8 +10,7 @@ import {
 } from "@/lib/agents";
 import { markdownToHtml } from "@/lib/markdown-to-html";
 import Markdown from "@/components/ui/Markdown";
-import MicButton from "@/components/ui/MicButton";
-import { useSpeechToText } from "@/hooks/useSpeechToText";
+import VoiceProcessor from "@/components/ui/VoiceProcessor";
 import type { RichTextEditorRef } from "@/components/editor/RichTextEditor";
 
 const RichTextEditor = dynamic(
@@ -58,10 +57,6 @@ export default function AgentRunnerPage() {
 
   // Pipeline state
   const [input, setInput] = useState("");
-  const { isListening: inputListening, supported: inputMicSupported, toggle: toggleInputMic } = useSpeechToText({
-    onTranscript: (text) => setInput(text),
-    currentValue: input,
-  });
   const [isRunning, setIsRunning] = useState(false);
   const [stepStates, setStepStates] = useState<StepState[]>([]);
   const [pipelineComplete, setPipelineComplete] = useState(false);
@@ -72,10 +67,6 @@ export default function AgentRunnerPage() {
   // Editable output state
   const [editorHtml, setEditorHtml] = useState("");
   const [refineInput, setRefineInput] = useState("");
-  const { isListening: refineListening, supported: refineMicSupported, toggle: toggleRefineMic } = useSpeechToText({
-    onTranscript: (text) => setRefineInput(text),
-    currentValue: refineInput,
-  });
   const [isRefining, setIsRefining] = useState(false);
   const [savedOutputId, setSavedOutputId] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
@@ -987,11 +978,11 @@ export default function AgentRunnerPage() {
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
                       placeholder={agent.description}
-                      className={`w-full rounded-xl border bg-white px-4 py-3 ${inputMicSupported ? "pr-11" : "pr-4"} text-sm focus:outline-none focus:ring-1 transition-colors ${
-                        inputListening ? "border-red-400 focus:border-red-400 focus:ring-red-400" : "border-gray-300 focus:border-brand-400 focus:ring-brand-400"
-                      }`}
+                      className="w-full rounded-xl border bg-white px-4 py-3 pr-32 text-sm focus:outline-none focus:ring-1 transition-colors border-gray-300 focus:border-brand-400 focus:ring-brand-400"
                     />
-                    <MicButton isListening={inputListening} supported={inputMicSupported} onClick={toggleInputMic} disabled={isRunning} size="sm" className="absolute right-2.5 top-2" />
+                    <div className="absolute right-2.5 top-2">
+                      <VoiceProcessor value={input} onChange={setInput} context="chat" disabled={isRunning} micSize="sm" />
+                    </div>
                   </div>
                   <button
                     type="submit"
@@ -1304,11 +1295,11 @@ export default function AgentRunnerPage() {
                           onChange={(e) => setRefineInput(e.target.value)}
                           placeholder='Refine: "Make it shorter", "Add pricing section", "More formal"...'
                           disabled={isRefining}
-                          className={`w-full rounded-xl border bg-white px-4 py-2.5 ${refineMicSupported ? "pr-10" : "pr-4"} text-sm focus:outline-none focus:ring-1 disabled:opacity-50 transition-colors ${
-                            refineListening ? "border-red-400 focus:border-red-400 focus:ring-red-400" : "border-gray-300 focus:border-brand-400 focus:ring-brand-400"
-                          }`}
+                          className="w-full rounded-xl border bg-white px-4 py-2.5 pr-28 text-sm focus:outline-none focus:ring-1 disabled:opacity-50 transition-colors border-gray-300 focus:border-brand-400 focus:ring-brand-400"
                         />
-                        <MicButton isListening={refineListening} supported={refineMicSupported} onClick={toggleRefineMic} disabled={isRefining} size="sm" className="absolute right-2 top-1.5" />
+                        <div className="absolute right-2 top-1.5">
+                          <VoiceProcessor value={refineInput} onChange={setRefineInput} context="content" disabled={isRefining} micSize="sm" />
+                        </div>
                       </div>
                       <button
                         type="submit"

@@ -2,8 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback, type FormEvent } from "react";
 import MessageBubble from "./MessageBubble";
-import MicButton from "@/components/ui/MicButton";
-import { useSpeechToText } from "@/hooks/useSpeechToText";
+import VoiceProcessor from "@/components/ui/VoiceProcessor";
 
 interface Source {
   type: "brand_doc" | "article";
@@ -55,10 +54,7 @@ export default function ChatInterface({
   const abortRef = useRef<AbortController | null>(null);
   const sessionIdRef = useRef<string | null>(null);
 
-  const { isListening, supported: micSupported, toggle: toggleMic } = useSpeechToText({
-    onTranscript: (text) => setInput(text),
-    currentValue: input,
-  });
+  // Voice input is handled by VoiceProcessor below — see the input form.
 
   /** Persist a message to Supabase (fire-and-forget) */
   function saveMessage(sessionId: string, role: string, content: string, sources?: Source[]) {
@@ -328,26 +324,25 @@ export default function ChatInterface({
               placeholder={placeholder}
               rows={1}
               disabled={isStreaming}
-              className={`w-full resize-none rounded-xl border bg-gray-50 px-4 py-3 ${micSupported ? "pr-12" : "pr-4"} text-[15px] text-gray-900 placeholder-gray-400 focus:bg-white focus:outline-none focus:ring-1 disabled:opacity-50 transition-colors ${
-                isListening
-                  ? "border-red-400 focus:border-red-400 focus:ring-red-400"
-                  : "border-gray-300 focus:border-brand-400 focus:ring-brand-400"
-              }`}
+              className="w-full resize-none rounded-xl border bg-gray-50 px-4 py-3 pr-32 text-[15px] text-gray-900 placeholder-gray-400 focus:bg-white focus:outline-none focus:ring-1 disabled:opacity-50 transition-colors border-gray-300 focus:border-brand-400 focus:ring-brand-400"
             />
-            <MicButton
-              isListening={isListening}
-              supported={micSupported}
-              onClick={toggleMic}
-              disabled={isStreaming}
-              size="sm"
-              className="absolute right-2.5 top-2.5"
-            />
-            {isListening && (
-              <div className="absolute -bottom-5 left-1 flex items-center gap-1.5 text-xs text-red-500">
-                <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
-                Listening...
-              </div>
-            )}
+            <div className="absolute right-2.5 top-2.5">
+              <VoiceProcessor
+                value={input}
+                onChange={setInput}
+                context="chat"
+                getSelectedText={() => {
+                  const el = inputRef.current;
+                  if (!el) return "";
+                  const start = el.selectionStart ?? 0;
+                  const end = el.selectionEnd ?? 0;
+                  if (start === end) return "";
+                  return input.slice(start, end);
+                }}
+                disabled={isStreaming}
+                micSize="sm"
+              />
+            </div>
           </div>
           <button
             type="submit"

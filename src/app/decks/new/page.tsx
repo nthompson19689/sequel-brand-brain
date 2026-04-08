@@ -2,8 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import MicButton from "@/components/ui/MicButton";
-import { useSpeechToText } from "@/hooks/useSpeechToText";
+import VoiceProcessor from "@/components/ui/VoiceProcessor";
 import { newSlide } from "@/lib/decks";
 
 const STARTING_POINTS = [
@@ -21,14 +20,8 @@ export default function NewDeckPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const { isListening, supported, toggle } = useSpeechToText({
-    onTranscript: (t) => setPrompt(t),
-    currentValue: prompt,
-  });
-
   async function handleGenerate() {
     if (!prompt.trim()) return;
-    if (isListening) toggle(); // stop mic
     setIsGenerating(true);
     setError(null);
 
@@ -142,19 +135,12 @@ export default function NewDeckPage() {
               rows={4}
               placeholder={placeholders[mode] || placeholders.prompt}
               disabled={isGenerating}
-              className={`w-full rounded-xl border bg-white px-4 py-3 ${supported ? "pr-12" : "pr-4"} text-sm focus:outline-none focus:ring-1 resize-y transition-colors ${
-                isListening ? "border-red-400 focus:border-red-400 focus:ring-red-400" : "border-border focus:border-brand-400 focus:ring-brand-400"
-              }`}
+              className="w-full rounded-xl border bg-white px-4 py-3 pr-32 text-sm focus:outline-none focus:ring-1 resize-y transition-colors border-border focus:border-brand-400 focus:ring-brand-400"
             />
-            <MicButton isListening={isListening} supported={supported} onClick={toggle} disabled={isGenerating} className="absolute right-3 top-3" />
-          </div>
-
-          {isListening && (
-            <div className="mb-4 flex items-center gap-1.5 text-xs text-red-500">
-              <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
-              Listening...
+            <div className="absolute right-3 top-3">
+              <VoiceProcessor value={prompt} onChange={setPrompt} context="content" disabled={isGenerating} micSize="sm" />
             </div>
-          )}
+          </div>
 
           {error && <p className="text-sm text-red-500 mb-4">{error}</p>}
 
