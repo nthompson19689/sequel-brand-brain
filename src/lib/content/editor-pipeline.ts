@@ -28,8 +28,11 @@ import {
   FORBIDDEN_CITATION_DOMAINS,
   FORBIDDEN_DOMAINS_PROMPT_LINE,
   SOURCE_CITATION_RULES,
+  POSITIVE_FRAMING_RULE,
+  SENTENCE_VARIATION_RULE,
   stripForbiddenLinks,
 } from "@/lib/content/brand-rules";
+import { validateAndCleanUrls } from "@/lib/content/url-validator";
 
 type SendFn = (data: Record<string, unknown>) => void;
 
@@ -58,6 +61,7 @@ export interface EditorPipelineResult {
   externalLinksDropped: string[];
   externalLinksRecovered: string[];
   forbiddenLinksStripped: string[];
+  brokenExternalUrlsRemoved: string[];
   violations: ReturnType<typeof scanBannedPatterns>;
 }
 
@@ -133,19 +137,67 @@ export async function runEditorPipeline(
   const maxWords = Math.round(targetWC * 1.05);
 
   // ══════════════════════════════════════════════════════════════
-  // PRE-PASS: strip forbidden competitor citations BEFORE the editor
+  // PRE-PASS 1: strip forbidden competitor citations BEFORE the editor
   // ever sees the draft. This guarantees they can't survive the run
   // even if the model somehow reintroduces them.
   // ══════════════════════════════════════════════════════════════
   const { cleaned: preCleanedDraft, removed: removedForbiddenLinks } =
     stripForbiddenLinks(rawDraft);
-  const draft = preCleanedDraft;
+  let draft = preCleanedDraft;
   if (removedForbiddenLinks.length > 0) {
     send?.({
       type: "status",
       stage: stageName,
       step: "forbidden_removed",
       message: `Pre-stripped ${removedForbiddenLinks.length} forbidden competitor link${removedForbiddenLinks.length === 1 ? "" : "s"}: ${removedForbiddenLinks.join(", ")}`,
+    });
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // PRE-PASS 2: validate every external URL with an HTTP HEAD check
+  // and strip the broken ones. This catches 404s, DNS failures, and
+  // timeouts that the research phase may have introduced (Claude web
+  // search occasionally returns stale URLs that 404 in production).
+  // Dead citations get unwrapped to plain text so the sentence still
+  // reads, but no longer points at a broken page.
+  // ══════════════════════════════════════════════════════════════
+  send?.({
+    type: "status",
+    stage: stageName,
+    step: "url_validate",
+    message: "Validating external citations (HTTP HEAD)...",
+  });
+  let brokenExternalUrls: string[] = [];
+  try {
+    const validation = await validateAndCleanUrls(draft, {
+      isExternal: (url) => !url.toLowerCase().includes(internalDomainSubstring),
+      concurrency: 6,
+    });
+    if (validation.broken.length > 0) {
+      draft = validation.cleaned;
+      brokenExternalUrls = validation.broken.map((b) => b.url);
+      send?.({
+        type: "status",
+        stage: stageName,
+        step: "url_validate",
+        message: `Removed ${validation.broken.length} broken external link${validation.broken.length === 1 ? "" : "s"} (checked ${validation.checked}): ${brokenExternalUrls.slice(0, 3).join(", ")}${brokenExternalUrls.length > 3 ? ", ..." : ""}`,
+      });
+    } else {
+      send?.({
+        type: "status",
+        stage: stageName,
+        step: "url_validate",
+        message: `All ${validation.checked} external citations valid.`,
+      });
+    }
+  } catch (err) {
+    // URL validation failure should not kill the whole edit pass.
+    console.error("[editor-pipeline] URL validation failed:", err);
+    send?.({
+      type: "status",
+      stage: stageName,
+      step: "url_validate",
+      message: "URL validation skipped (network error).",
     });
   }
 
@@ -228,7 +280,7 @@ export async function runEditorPipeline(
     ...baseBlocks,
     {
       type: "text" as const,
-      text: `${EDITOR_IDENTITY}\n\n${KILL_LIST_FOR_EDITOR}\n\nYou are performing Call 1 of 2: the FAST violation scan. Output ONLY a compact edit list. Do NOT reproduce the article. Be concise.\n\n⚠️ DO NOT propose ANY edit that removes, rewrites, or deletes an external citation URL. External citations are PROTECTED. If you see an external URL in the article, it MUST stay in the final version, exactly as-is.\n\n${FORBIDDEN_DOMAINS_PROMPT_LINE}\n\n${SOURCE_CITATION_RULES}`,
+      text: `${EDITOR_IDENTITY}\n\n${KILL_LIST_FOR_EDITOR}\n\nYou are performing Call 1 of 2: the FAST violation scan. Output ONLY a compact edit list. Do NOT reproduce the article. Be concise.\n\n⚠️ DO NOT propose ANY edit that removes, rewrites, or deletes an external citation URL. External citations are PROTECTED. If you see an external URL in the article, it MUST stay in the final version, exactly as-is.\n\n${POSITIVE_FRAMING_RULE}\n\n${SENTENCE_VARIATION_RULE}\n\n${FORBIDDEN_DOMAINS_PROMPT_LINE}\n\n${SOURCE_CITATION_RULES}`,
     },
   ];
 
@@ -257,7 +309,8 @@ CHECK FOR:
 - Em dashes (replace with commas/periods/restructure)
 - First-person singular (change to we/our)
 - Vague claims without specifics
-- "It's not about X, it's about Y" constructions
+- 🚫 NEGATION-TO-AFFIRMATION CONSTRUCTIONS — this is the #1 thing you're hunting. Every variant of "it's not X, it's Y" / "X isn't the answer, Y is" / "the real problem isn't X" / "we don't need X, we need Y" / "forget X, think Y" / "instead of X, Y" / "not X. Y." must be rewritten to state the positive directly. Cut the negation, state what it IS.
+- 🎵 SENTENCE-STRUCTURE REPETITION — flag any case of 3+ consecutive sentences or paragraphs starting with the same word, and any stretch where every sentence is the same length.
 - Non-blog internal links (only /post/ URLs allowed)
 - Insufficient internal links (need 5+)
 - Passive voice
@@ -316,6 +369,10 @@ Every external (non-${internalDomainSubstring}) URL in the original article MUST
 REQUIRED EXTERNAL URLS THAT MUST APPEAR VERBATIM IN YOUR OUTPUT:
 ${externalUrlList}
 
+${POSITIVE_FRAMING_RULE}
+
+${SENTENCE_VARIATION_RULE}
+
 ${FORBIDDEN_DOMAINS_PROMPT_LINE}
 
 ${SOURCE_CITATION_RULES}
@@ -336,6 +393,8 @@ RULES:
 13. WORD COUNT TARGET: ${targetWC} words (±5% = ${minWords}-${maxWords}). The final output MUST be within this range. Overshooting is a failure.${wordCountDirective}
 14. ZERO forbidden competitor citations. If the edit list proposes one, ignore it.
 15. EVERY statistic in the output MUST carry a source URL in the same sentence. If the edit list missed an unsourced number, YOU MUST either rewrite the sentence without the number or add a source. Unsourced stats are a failure.
+16. ZERO negation-to-affirmation constructions in the final output. Not "it's not X, it's Y", not "we don't need X, we need Y", not "the real problem isn't X", not "instead of X, Y". If the edit list missed one, YOU MUST rewrite it as a direct positive statement. State what things ARE, never what they aren't.
+17. NO three consecutive sentences or paragraphs starting with the same word. Vary sentence openers and lengths.
 
 Output: the COMPLETE final article ONLY. No commentary, no edit markers, no meta text.`,
     },
@@ -529,6 +588,7 @@ ${cleanDraft}`,
     externalLinksDropped: stillDropped,
     externalLinksRecovered: recovered,
     forbiddenLinksStripped: forbiddenStripped,
+    brokenExternalUrlsRemoved: brokenExternalUrls,
     violations,
   };
 }

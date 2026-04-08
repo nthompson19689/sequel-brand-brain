@@ -33,6 +33,59 @@ export const FORBIDDEN_DOMAINS_PROMPT_LINE = `🚫 FORBIDDEN COMPETITOR CITATION
 )}. These are direct Sequel competitors. Do NOT cite them, link to them, reference their blog posts, or use them as sources. If a stat you'd use comes from one of these domains, find a different source or drop the stat entirely.`;
 
 /**
+ * The positive-framing voice rule. Pasted verbatim into writer prompts AND
+ * editor prompts. This is the #1 AI tell we're hunting and the single rule
+ * that most often gets violated under pressure.
+ */
+export const POSITIVE_FRAMING_RULE = `🚫 STATE WHAT IT IS — NEVER WHAT IT ISN'T 🚫
+
+This is the single most important sentence-level rule. Read it twice.
+
+Do NOT define things by negation. Do NOT write sentences that set up a positive by rejecting a negative. If you want to say something is X, just say it's X. Don't say "it's not Y, it's X."
+
+BANNED CONSTRUCTIONS (all variants — the editor will strip every one):
+- "It's not about X, it's about Y."
+- "It's not X, it's Y."
+- "It's not just X, it's Y."
+- "X isn't about Y. It's about Z."
+- "The real problem isn't X. It's Y."
+- "The question isn't X. It's Y."
+- "X isn't the answer — Y is."
+- "We don't need X. We need Y."
+- "You don't want X. You want Y."
+- "Don't focus on X. Focus on Y."
+- "Forget X. Think Y."
+- "Instead of X, Y."
+- "Less about X, more about Y."
+- "X doesn't mean Y. It means Z."
+- "Not X. Y." (as a pivot sentence)
+
+HOW TO REWRITE: Cut the negation entirely. State the positive directly.
+❌ "It's not about the platform. It's about the workflow."
+✅ "The workflow is what matters."
+
+❌ "We don't need more data. We need better questions."
+✅ "Better questions produce better data."
+
+❌ "The real issue isn't cost. It's visibility."
+✅ "Visibility is the real issue."
+
+If you catch yourself typing the word "not" or "isn't" or "don't" as setup for a contrast, stop and rewrite the sentence as a direct statement.`;
+
+/**
+ * Sentence-structure variation rule. Ensures the writer doesn't fall into
+ * the cadence of "short punchy sentence. Another short punchy sentence.
+ * One more short punchy sentence." — which is another AI tell.
+ */
+export const SENTENCE_VARIATION_RULE = `🎵 SENTENCE RHYTHM — VARY OPENERS AND LENGTHS 🎵
+
+- Never start three consecutive sentences with the same word.
+- Never start three consecutive paragraphs with the same word.
+- Mix sentence lengths dramatically. A 35-word sentence followed by a 6-word sentence has rhythm. Six medium-length sentences in a row is monotonous.
+- Vary sentence openers: don't begin every sentence with "The", "This", "We", or "When".
+- A section should feel like music, not a metronome.`;
+
+/**
  * The source-citation contract every writer agent must follow.
  * Pasted verbatim into writer prompts to keep enforcement uniform.
  */

@@ -60,6 +60,7 @@ export async function POST(request: Request) {
                 externalLinksDropped: result.externalLinksDropped,
                 externalLinksRecovered: result.externalLinksRecovered,
                 forbiddenLinksStripped: result.forbiddenLinksStripped,
+                brokenExternalUrlsRemoved: result.brokenExternalUrlsRemoved,
               },
               word_count: result.cleanDraft
                 .split(/\s+/)
@@ -90,6 +91,7 @@ export async function POST(request: Request) {
           externalLinksDropped: result.externalLinksDropped.length,
           externalLinksRecovered: result.externalLinksRecovered.length,
           forbiddenLinksStripped: result.forbiddenLinksStripped.length,
+          brokenExternalUrlsRemoved: result.brokenExternalUrlsRemoved.length,
         });
       } catch (err) {
         send({

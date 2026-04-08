@@ -29,6 +29,8 @@ import {
   FORBIDDEN_CITATION_DOMAINS,
   FORBIDDEN_DOMAINS_PROMPT_LINE,
   SOURCE_CITATION_RULES,
+  POSITIVE_FRAMING_RULE,
+  SENTENCE_VARIATION_RULE,
 } from "@/lib/content/brand-rules";
 
 type SendFn = (data: Record<string, unknown>) => void;
@@ -130,6 +132,10 @@ export async function runThreeAgentWriter(
 This article is being written in three sequential passes by three specialized agents, each handling one section. You are ONE of those agents. The user message will tell you which section you are writing and its exact word budget. Do NOT attempt to write the full article. Only write your assigned section. The other agents will handle the rest.
 
 === HARD RULES THAT APPLY TO EVERY SECTION ===
+${POSITIVE_FRAMING_RULE}
+
+${SENTENCE_VARIATION_RULE}
+
 ${SOURCE_CITATION_RULES}
 
 ${FORBIDDEN_DOMAINS_PROMPT_LINE}

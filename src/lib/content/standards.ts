@@ -181,16 +181,50 @@ export function scanBannedPatterns(text: string): Array<{ pattern: string; match
   const exclMatches = Array.from(text.matchAll(exclRegex)).map((m) => m[0].slice(0, 60));
   if (exclMatches.length > 0) violations.push({ pattern: "exclamation cluster", matches: exclMatches, type: "exclamation" });
 
-  // "It's not about X, it's about Y" and all variants — THE major AI tell
-  // Catches: "It's not X, it's Y", "isn't about X. It's about Y", "This isn't about X",
-  // "The problem isn't X", "ROI measurement isn't about X. It's about Y"
-  const notAboutPatterns = [
-    /.{3,40}\s+isn'?t\s+about\s+.{5,120}[.]\s*It'?s\s+about\s+/g,       // "X isn't about... It's about"
-    /[Ii]t'?s\s+not\s+about\s+.{5,120}[.—,]\s*[Ii]t'?s\s+about\s+/g,    // "It's not about... it's about"
-    /[Tt]his\s+isn'?t\s+about\s+.{5,120}[.—,]\s*[Ii]t'?s\s+about\s+/g,  // "This isn't about... it's about"
-    /[Ii]t'?s\s+not\s+.{2,40}[\s,;.]+[Ii]t'?s\s+/g,                     // Generic "it's not X, it's Y"
-    /[Tt]he\s+problem\s+isn'?t\s+/g,                                      // "The problem isn't"
-    /[Tt]his\s+isn'?t\s+about\s+/g,                                       // "This isn't about"
+  // NEGATION-TO-AFFIRMATION — the #1 AI tell we're hunting.
+  //
+  // Rule: "Don't tell me what it ISN'T, tell me what it IS."
+  //
+  // This catches every variant of "it's not X, it's Y" plus all the
+  // workarounds the model likes to sneak through: "We don't need X,
+  // we need Y", "Forget X, think Y", "Instead of X, Y", "X isn't the
+  // answer — Y is", "The real problem isn't X", etc. Any sentence
+  // construction that defines something by what it's NOT is flagged.
+  const notAboutPatterns: RegExp[] = [
+    // Classic "it's not X, it's Y"
+    /[Ii]t'?s\s+not\s+about\s+.{5,120}[.—,;]\s*[Ii]t'?s\s+about\s+/g,
+    /[Ii]t'?s\s+not\s+.{2,60}[\s,;.]+[Ii]t'?s\s+/g,
+    /[Ii]t'?s\s+never\s+about\s+.{5,120}[.—,;]\s*[Ii]t'?s\s+about\s+/g,
+    // Subject + isn't + about
+    /\b\w+\s+isn'?t\s+about\s+.{5,120}[.]\s*It'?s\s+about\s+/g,
+    /[Tt]his\s+isn'?t\s+about\s+.{5,120}[.—,;]\s*[Ii]t'?s\s+about\s+/g,
+    /[Tt]hat'?s\s+not\s+.{5,120}[.—,;]\s*[Tt]hat'?s\s+/g,
+    // "The problem/issue/question isn't X. It's Y."
+    /[Tt]he\s+(?:problem|issue|question|challenge|point|goal|answer|real\s+\w+)\s+isn'?t\s+.{5,140}[.—,;]\s*[Ii]t'?s\s+/g,
+    /[Tt]he\s+(?:problem|issue|question|challenge|point|goal)\s+isn'?t\s+/g,
+    /[Tt]he\s+real\s+\w+\s+isn'?t\s+/g,
+    // "X isn't the answer — Y is" / "X isn't enough. Y is."
+    /\b\w+\s+isn'?t\s+(?:the\s+)?(?:answer|solution|goal|problem|point|issue)\b[^.!?]{0,60}[.—,;]\s*\w+\s+is\b/g,
+    // "We don't / You don't / They don't need X, we need Y"
+    /\b(?:[Ww]e|[Yy]ou|[Tt]hey)\s+don'?t\s+need\s+.{3,80}[.,;—]\s*(?:[Ww]e|[Yy]ou|[Tt]hey)\s+need\s+/g,
+    /\b(?:[Ww]e|[Yy]ou|[Tt]hey)\s+don'?t\s+want\s+.{3,80}[.,;—]\s*(?:[Ww]e|[Yy]ou|[Tt]hey)\s+want\s+/g,
+    // "Don't focus on X; focus on Y"
+    /\b[Dd]on'?t\s+focus\s+on\s+.{3,80}[.,;—]\s*[Ff]ocus\s+on\s+/g,
+    // "Forget X. Think Y." / "Forget X — Y"
+    /\b[Ff]orget\s+.{3,60}[.—,;]\s*(?:[Tt]hink|[Rr]emember|[Cc]onsider|[Ii]t'?s)\s+/g,
+    // "Instead of X, (do) Y"
+    /\b[Ii]nstead\s+of\s+.{3,80},\s*\w+/g,
+    // "Not X. Y." standalone sentence
+    /(?:^|\.\s+)[Nn]ot\s+\w{3,30}[.]\s+[A-Z]\w{3,30}[.]/g,
+    // "Less about X, more about Y"
+    /\b[Ll]ess\s+about\s+.{3,80}[,;]\s*more\s+about\s+/g,
+    /\b[Mm]ore\s+about\s+.{3,80}[,;]\s*less\s+about\s+/g,
+    // "X won't help. Y will."
+    /\b\w+\s+won'?t\s+.{5,60}[.]\s*\w+\s+will\b/g,
+    // "It's not just X, it's Y" (even worse variant)
+    /[Ii]t'?s\s+not\s+just\s+.{3,80}[,;]\s*[Ii]t'?s\s+/g,
+    // "X doesn't mean Y, it means Z"
+    /\b\w+\s+doesn'?t\s+mean\s+.{5,80}[,;.]\s*[Ii]t\s+means\s+/g,
   ];
   const itsNotMatches: string[] = [];
   for (const regex of notAboutPatterns) {
@@ -198,10 +232,15 @@ export function scanBannedPatterns(text: string): Array<{ pattern: string; match
     for (const m of matches) {
       const start = Math.max(0, (m.index || 0) - 10);
       const end = Math.min(text.length, (m.index || 0) + m[0].length + 10);
-      itsNotMatches.push(text.slice(start, end));
+      itsNotMatches.push(text.slice(start, end).trim());
     }
   }
-  if (itsNotMatches.length > 0) violations.push({ pattern: "it's not X, it's Y / isn't about X", matches: Array.from(new Set(itsNotMatches)), type: "construction" });
+  if (itsNotMatches.length > 0)
+    violations.push({
+      pattern: "negation-to-affirmation (state what it IS, not what it isn't)",
+      matches: Array.from(new Set(itsNotMatches)),
+      type: "construction",
+    });
 
   // Paragraphs — we now ALLOW 3-5 sentence paragraphs for essay depth.
   // Only flag paragraphs with 6+ sentences as genuinely too long.

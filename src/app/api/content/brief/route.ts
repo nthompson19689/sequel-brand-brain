@@ -65,7 +65,9 @@ export async function POST(request: Request) {
   const { blocks: systemBlocks } = await buildSystemBlocks({
     includeWritingStandards: true,
     includeArticleReference: true,
-    additionalContext: BRIEF_SYSTEM + "\n\nYou MUST select 5-10 links from the INTERNAL LINK REFERENCE to include in the brief. Pick the most topically relevant ones. Spread links naturally throughout different sections — do NOT cluster them.",
+    additionalContext:
+      BRIEF_SYSTEM +
+      `\n\n🚨 URL HONESTY RULE 🚨\n- Every URL in this brief MUST be copied verbatim from a web_search result in THIS conversation turn.\n- Do NOT reconstruct URLs. Do NOT guess at URLs. Do NOT use URLs from your training data or memory.\n- If you didn't see the URL in a search result this turn, you don't have it. Drop the stat.\n- Every statistic MUST cite a source URL that came from the web_search tool this turn.\n- NEVER cite on24.com, goldcast.io, or bizzabo.com (direct Sequel competitors).\n\nYou MUST select 5-10 links from the INTERNAL LINK REFERENCE to include in the brief. Pick the most topically relevant ones. Spread links naturally throughout different sections — do NOT cluster them.`,
   });
 
   const encoder = new TextEncoder();
@@ -100,11 +102,11 @@ export async function POST(request: Request) {
 3. PEOPLE ALSO ASK: Note any "People Also Ask" questions and related searches you find for this keyword.
 
 4. DATA POINT HUNTING: Search for recent, credible statistics related to "${keyword}". For each stat:
-   - The exact claim/number
-   - Source publication or study name
-   - Full source URL
+   - The exact claim/number (as it appeared in the search result snippet)
+   - Source publication or study name (as it appeared in the search result)
+   - Full source URL (copy VERBATIM from the search result — do not reconstruct, clean up, or guess)
    - Year published
-   Find at least 3-5 data points. Prefer primary sources (research reports, company blogs) over aggregator articles. If you cannot find a credible URL for a stat, DO NOT include it.
+   Find at least 3-5 data points. Prefer primary sources (research reports, company newsrooms, government data) over aggregator articles. If you did not see a URL in a search result this turn, you don't have it — drop the stat. Do NOT invent URLs from training data. Do NOT cite competitor domains (on24.com, goldcast.io, bizzabo.com). Append "(verified from search this turn)" to each URL you cite so the brief author knows it's live.
 
 5. COMPETITIVE GAPS: Based on your analysis, identify:
    - TABLE STAKES: Topics every top ranker covers (we MUST include)

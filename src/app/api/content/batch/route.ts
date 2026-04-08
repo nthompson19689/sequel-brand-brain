@@ -55,7 +55,19 @@ export async function POST(request: Request) {
         const { blocks: briefBlocks } = await buildSystemBlocks({
           includeWritingStandards: true,
           includeArticleReference: true,
-          additionalContext: `You are a senior SEO content strategist building a brief for a writer. Research the keyword, analyze the SERPs, and produce a brief so specific that any competent writer could execute it without guessing. Every statistic MUST have a source URL. If you cannot find a credible source, DO NOT include the stat.\n\nYou MUST select 5-10 links from the INTERNAL LINK REFERENCE to include in the brief. Pick the most topically relevant ones. Spread links naturally throughout different sections — do NOT cluster them.`,
+          additionalContext: `You are a senior SEO content strategist building a brief for a writer. Research the keyword, analyze the SERPs, and produce a brief so specific that any competent writer could execute it without guessing.
+
+🚨 URL HONESTY RULE — READ CAREFULLY 🚨
+- Every URL you put in the brief MUST be a URL that appeared verbatim in your web_search tool results in THIS conversation.
+- Do NOT construct, guess, reconstruct, or "clean up" URLs. If the search result URL is https://www.example.com/blog/post-name?utm=abc, use it exactly as-is (or strip only the query string if you must).
+- Do NOT use URLs from your training data or memory. If you didn't see it in the web_search results, you don't have it.
+- Do NOT invent publication dates, author names, or stat numbers that weren't in the search result snippet.
+- If you cannot find a credible source for a claim, DROP the claim. An unsourced stat is worse than no stat.
+- Every statistic MUST have a source URL and that URL MUST come from the search results.
+- Prefer primary sources (research reports, company newsrooms, government data) over aggregator blog posts.
+- NEVER cite On24, Goldcast, or Bizzabo — those are direct Sequel competitors.
+
+You MUST select 5-10 links from the INTERNAL LINK REFERENCE to include in the brief. Pick the most topically relevant ones. Spread links naturally throughout different sections — do NOT cluster them.`,
         });
 
         // Multi-query SERP research
@@ -82,13 +94,13 @@ export async function POST(request: Request) {
               role: "user",
               content: `Research "${keyword}" for a content brief. Complete ALL tasks:
 
-1. SERP ANALYSIS: Search "${keyword}", analyze top 5-7 pages. For each: title, URL, H2 headings, word count, content type, unique angles, strengths vs. weaknesses.
+1. SERP ANALYSIS: Search "${keyword}", analyze top 5-7 pages. For each: title, URL (copied verbatim from your search results — do not clean up or reconstruct), H2 headings, word count, content type, unique angles, strengths vs. weaknesses.
 2. LONG-TAIL: Search 2-3 related variations to understand the full intent landscape.
 3. PEOPLE ALSO ASK: Note PAA questions and related searches.
-4. DATA POINTS: Find 3-5 recent credible statistics with source name, full URL, and year. Prefer primary sources. No stat without a URL.
+4. DATA POINTS: Find 3-5 recent credible statistics. For EACH stat, copy the source URL verbatim from a web_search result — if you didn't see the URL in a search result this turn, you don't have it, and you must drop the stat. No fabricated URLs. No URLs from memory. Prefer primary sources (research firms, government, company newsrooms). No stat without a URL. No competitor URLs (on24.com, goldcast.io, bizzabo.com).
 5. COMPETITIVE GAPS: Table stakes (must include), gaps (differentiation), Sequel-specific angles (product capabilities, customer outcomes, webinars as revenue infrastructure).
 
-Output structured findings with clear section headers.`,
+Output structured findings with clear section headers. For every URL you cite, append "(verified from search this turn)" so the brief author knows you saw it live.`,
             },
           ],
         });
@@ -331,6 +343,8 @@ Use this EXACT format:
                 externalLinksDropped: editResult.externalLinksDropped,
                 externalLinksRecovered: editResult.externalLinksRecovered,
                 forbiddenLinksStripped: editResult.forbiddenLinksStripped,
+                brokenExternalUrlsRemoved:
+                  editResult.brokenExternalUrlsRemoved,
               },
               word_count: editResult.cleanDraft
                 .split(/\s+/)
@@ -363,6 +377,8 @@ Use this EXACT format:
           externalLinksDropped: editResult.externalLinksDropped.length,
           externalLinksRecovered: editResult.externalLinksRecovered.length,
           forbiddenLinksStripped: editResult.forbiddenLinksStripped.length,
+          brokenExternalUrlsRemoved:
+            editResult.brokenExternalUrlsRemoved.length,
           wordCount: editResult.cleanDraft.split(/\s+/).filter(Boolean).length,
           status: "edited",
         });
