@@ -48,7 +48,15 @@ export async function getBrainContextStatus(): Promise<ContextStatus> {
       status.voice = true;
       status.tone = true;
     }
-    if (types.has("editorial_longform") || types.has("editorial_shortform")) {
+    // Style guide is satisfied by any of the editorial docs, content
+    // examples, OR voice_and_tone (many teams bundle style rules into
+    // their voice doc rather than splitting them out).
+    if (
+      types.has("editorial_longform") ||
+      types.has("editorial_shortform") ||
+      types.has("content_examples") ||
+      types.has("voice_and_tone")
+    ) {
       status.style_guide = true;
       status.editorial_guidelines = true;
     }
