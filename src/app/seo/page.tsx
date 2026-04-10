@@ -219,25 +219,30 @@ export default function SeoPage() {
   async function handleSync() {
     setSyncing(true);
     setSyncError(null);
+    setSyncSuccess(null);
     try {
       const res = await fetch("/api/seo/sync", { method: "POST" });
-      const data = await res.json();
+      let data;
+      try {
+        data = await res.json();
+      } catch {
+        setSyncError(`Sync returned HTTP ${res.status} with non-JSON response. The function may have timed out.`);
+        setSyncing(false);
+        return;
+      }
       if (!res.ok) {
-        setSyncError(data.error || "Sync failed");
+        setSyncError(data.error || `Sync failed with HTTP ${res.status}`);
       } else {
-        // Show what was synced
         const s = data.summary;
-        if (s) {
-          setSyncError(null);
-          // Use syncError display temporarily for success message
-          const msg = `Synced ${s.total} pages from GSC (last 28 days). ${s.working} working, ${s.needs_push} needs push, ${s.not_working} not working. Note: Google Search Console data has a 2-3 day lag.`;
-          setSyncSuccess(msg);
-          setTimeout(() => setSyncSuccess(null), 8000);
-        }
+        const msg = s
+          ? `Synced ${s.total} pages (${s.working} working, ${s.needs_push} needs push, ${s.not_working} not working). GSC data has a 2-3 day lag — numbers update when Google processes new data.`
+          : "Sync completed but returned no summary.";
+        setSyncSuccess(msg);
       }
       await loadDashboard();
-    } catch {
-      setSyncError("Sync request failed — check Vercel logs for details");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      setSyncError(`Sync request failed: ${msg}`);
     }
     setSyncing(false);
   }
@@ -687,6 +692,12 @@ export default function SeoPage() {
             >
               {syncing ? "Syncing..." : "Sync Now"}
             </button>
+            {syncError && (
+              <p className="mt-3 text-xs text-red-400">{syncError}</p>
+            )}
+            {syncSuccess && (
+              <p className="mt-3 text-xs text-green-400">{syncSuccess}</p>
+            )}
           </div>
         ) : (
           <div className="bg-[#1A1228] border border-[#2A2040] rounded-xl overflow-hidden">
