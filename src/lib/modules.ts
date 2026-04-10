@@ -75,6 +75,15 @@ export const MODULES: AppModule[] = [
 
   // ── Additional workspace modules ──
   {
+    id: "studio",
+    displayName: "Studio",
+    description: "Turn transcripts and recordings into blog posts, newsletters, and LinkedIn content",
+    path: "/studio",
+    iconKey: "Studio",
+    defaultRoles: ["marketing"],
+    section: "workspace",
+  },
+  {
     id: "outbound",
     displayName: "Outbound",
     description: "Prospect research, sequences, and daily action center",
