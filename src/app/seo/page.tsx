@@ -4,6 +4,8 @@ import { Fragment, useEffect, useState, useMemo, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "next/navigation";
 import { markdownToHtml } from "@/lib/markdown-to-html";
+import SeoTabSwitcher, { type SeoTab } from "@/components/seo/SeoTabSwitcher";
+import ExecutiveView from "@/components/seo/ExecutiveView";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -18,6 +20,7 @@ interface PageMetrics {
   engagement_rate: number;
   url_rating: number;
   referring_domains: number;
+  backlinks: number;
   health_score: number;
   conversions: number;
   new_users: number;
@@ -76,7 +79,7 @@ interface WeeklyReport {
 }
 
 type StatusFilter = "all" | "working" | "needs_push" | "not_working" | "top_performers";
-type SortKey = "url" | "clicks" | "avg_position" | "ctr" | "sessions" | "engagement_rate" | "url_rating" | "health_score" | "conversions";
+type SortKey = "url" | "clicks" | "avg_position" | "ctr" | "sessions" | "engagement_rate" | "url_rating" | "health_score" | "conversions" | "backlinks" | "referring_domains";
 type TimeFrame = "7d" | "30d" | "90d" | "mom";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -166,6 +169,9 @@ export default function SeoPage() {
   // Feature 8: AI Analysis
   const [analyzing, setAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState("");
+
+  // View tab: Executive (default) or Tactical
+  const [viewTab, setViewTab] = useState<SeoTab>("executive");
 
   // ─── Data fetching ─────────────────────────────────────────────────────────
 
@@ -447,6 +453,11 @@ export default function SeoPage() {
           </div>
         </div>
 
+        {/* View toggle */}
+        <div className="mb-6">
+          <SeoTabSwitcher activeTab={viewTab} onTabChange={setViewTab} />
+        </div>
+
         {/* Sync error */}
         {syncError && (
           <div className="mb-6 p-3 rounded-lg bg-red-900/30 border border-red-800/40 text-red-300 text-sm">
@@ -461,6 +472,16 @@ export default function SeoPage() {
           </div>
         )}
 
+        {/* ── Executive View ── */}
+        {viewTab === "executive" && (
+          <ExecutiveView
+            pages={pages}
+            summary={summary}
+          />
+        )}
+
+        {/* ── Tactical View (existing content) ── */}
+        {viewTab === "tactical" && <>
         {/* AI Analysis Results (Feature 8) */}
         {analysis && (
           <div className="mb-6 bg-[#1A1228] border border-[#2A2040] rounded-xl p-6">
@@ -714,6 +735,8 @@ export default function SeoPage() {
                       { key: "engagement_rate" as SortKey, label: "Eng Rate", width: "" },
                       { key: "conversions" as SortKey, label: "Conv", width: "" },
                       { key: "url_rating" as SortKey, label: "UR", width: "" },
+                      { key: "backlinks" as SortKey, label: "BL", width: "" },
+                      { key: "referring_domains" as SortKey, label: "RD", width: "" },
                       { key: "health_score" as SortKey, label: "Score", width: "" },
                     ]).map(({ key, label, width }) => (
                       <th
@@ -766,6 +789,8 @@ export default function SeoPage() {
                           {timeFrame === "mom" && deltaIndicator(page.conversions || 0, page.prev_conversions)}
                         </td>
                         <td className="px-4 py-3 text-gray-300 tabular-nums">{page.url_rating}</td>
+                        <td className="px-4 py-3 text-gray-300 tabular-nums">{(page.backlinks || 0).toLocaleString()}</td>
+                        <td className="px-4 py-3 text-gray-300 tabular-nums">{(page.referring_domains || 0).toLocaleString()}</td>
                         <td className="px-4 py-3 tabular-nums">
                           <span className={`font-medium ${
                             page.health_score >= 70 ? "text-emerald-400" :
@@ -781,7 +806,7 @@ export default function SeoPage() {
                       {/* Expanded detail row */}
                       {expandedUrl === page.url && (
                         <tr className="border-b border-[#2A2040]">
-                          <td colSpan={10} className="px-6 py-4 bg-[#0F0A1A]">
+                          <td colSpan={12} className="px-6 py-4 bg-[#0F0A1A]">
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
                               <div>
                                 <p className="text-gray-500 mb-0.5">Full URL</p>
@@ -974,6 +999,7 @@ export default function SeoPage() {
             )}
           </div>
         </div>
+        </>}
       </div>
     </div>
   );

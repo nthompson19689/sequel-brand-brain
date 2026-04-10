@@ -23,7 +23,14 @@ Analyze using these lenses in order:
 
 8. FUNNEL LEAKS — Identify pages where users arrive from organic search but don't progress toward conversion. Look for high-traffic pages with low engagement rates and zero conversions as priority fixes.
 
-Format: Group actions into Do This Week / Do This Month / Monitor. Each action is one sentence: [ACTION] + [PAGE] + [REASON]. Max 15 actions now that we have fuller data. Force-rank. Do not explain SEO basics. The reader is a content marketer who knows the fundamentals.`;
+CRITICAL: You MUST respond with ONLY a valid JSON object. No markdown, no explanation, no code fences. The JSON must have exactly this shape:
+{
+  "doThisWeek": ["action 1", "action 2", ...],
+  "doThisMonth": ["action 1", "action 2", ...],
+  "monitor": ["action 1", "action 2", ...]
+}
+
+Each action is one sentence: [ACTION] + [PAGE] + [REASON]. Max 5 items per section (15 total). Force-rank. Do not explain SEO basics.`;
 
 export async function POST(request: Request) {
   try {
@@ -41,16 +48,31 @@ export async function POST(request: Request) {
       system: [{ type: "text", text: SYSTEM_PROMPT }],
       messages: [{
         role: "user",
-        content: `Analyze this SEO dashboard data and provide a prioritized action plan.\n\nDashboard data (${pages.length} pages):\n${JSON.stringify(pages, null, 2)}`,
+        content: `Analyze this SEO dashboard data and provide a prioritized action plan as JSON.\n\nDashboard data (${pages.length} pages):\n${JSON.stringify(pages, null, 2)}`,
       }],
     });
 
-    let analysis = "";
+    let rawText = "";
     for (const block of response.content) {
-      if (block.type === "text") analysis += block.text;
+      if (block.type === "text") rawText += block.text;
     }
 
-    return Response.json({ analysis });
+    // Try to parse structured JSON
+    try {
+      const cleaned = rawText.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+      const parsed = JSON.parse(cleaned);
+      if (parsed.doThisWeek && parsed.doThisMonth && parsed.monitor) {
+        return Response.json({
+          structured: parsed,
+          analysis: rawText, // backward compat
+        });
+      }
+    } catch {
+      // JSON parse failed — fall through to raw text
+    }
+
+    // Fallback: return raw markdown (backward compatible)
+    return Response.json({ analysis: rawText });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("SEO analyze error:", msg);
