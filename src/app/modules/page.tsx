@@ -59,7 +59,7 @@ export default function ModulesPage() {
     setSaving(true);
     // Ensure core modules are always included
     const coreIds = MODULES.filter((m) => m.core).map((m) => m.id);
-    const withCores = [...new Set([...draft, ...coreIds])];
+    const withCores = Array.from(new Set([...draft, ...coreIds]));
     await setModules(withCores);
     setDraft(withCores);
     setSaving(false);
