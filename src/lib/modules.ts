@@ -81,7 +81,7 @@ export const MODULES: AppModule[] = [
     path: "/docs",
     iconKey: "Docs",
     defaultRoles: ["marketing", "leadership"],
-    section: "workspace",
+    section: "shared",
   },
   {
     id: "events",
@@ -90,7 +90,7 @@ export const MODULES: AppModule[] = [
     path: "/events",
     iconKey: "Events",
     defaultRoles: ["marketing"],
-    section: "workspace",
+    section: "shared",
   },
   {
     id: "studio",
@@ -99,7 +99,7 @@ export const MODULES: AppModule[] = [
     path: "/studio",
     iconKey: "Studio",
     defaultRoles: ["marketing"],
-    section: "workspace",
+    section: "shared",
   },
   {
     id: "outbound",
@@ -108,7 +108,7 @@ export const MODULES: AppModule[] = [
     path: "/outbound",
     iconKey: "Outbound",
     defaultRoles: ["sales"],
-    section: "workspace",
+    section: "shared",
   },
   {
     id: "decks",
