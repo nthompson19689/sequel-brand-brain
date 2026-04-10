@@ -256,22 +256,14 @@ async function fetchAhrefsDomainMetrics(): Promise<{
   // Try multiple Ahrefs v3 endpoints — availability depends on subscription tier
   const today = new Date().toISOString().split("T")[0];
   const endpoints = [
-    // Option 1: backlinks-stats (requires date param)
+    // Option 1: backlinks-stats (requires date param) — data is under .metrics
     {
       url: `https://api.ahrefs.com/v3/site-explorer/backlinks-stats?target=sequel.io&mode=domain&date=${today}`,
-      extract: (data: Record<string, unknown>) => ({
-        totalBacklinks: (data.live as number) ?? (data.all_time as number) ?? 0,
-        referringDomains: (data.live_refdomains as number) ?? (data.all_time_refdomains as number) ?? 0,
-      }),
-    },
-    // Option 2: metrics endpoint (requires date param)
-    {
-      url: `https://api.ahrefs.com/v3/site-explorer/metrics?target=sequel.io&mode=domain&date=${today}`,
       extract: (data: Record<string, unknown>) => {
         const m = (data.metrics || data) as Record<string, number>;
         return {
-          totalBacklinks: m.live ?? m.backlinks ?? m.all ?? 0,
-          referringDomains: m.live_refdomains ?? m.refdomains ?? 0,
+          totalBacklinks: m.live ?? m.all_time ?? 0,
+          referringDomains: m.live_refdomains ?? m.all_time_refdomains ?? 0,
         };
       },
     },
@@ -320,9 +312,9 @@ async function fetchAhrefsUrlRatings(
     const today = new Date().toISOString().split("T")[0];
     const promises = chunk.map(async (url) => {
       try {
-        // Use backlinks-stats with mode=url for per-page data
+        // Use backlinks-stats with mode=exact for per-page data
         const res = await fetch(
-          `https://api.ahrefs.com/v3/site-explorer/backlinks-stats?target=${encodeURIComponent(url)}&mode=url&date=${today}`,
+          `https://api.ahrefs.com/v3/site-explorer/backlinks-stats?target=${encodeURIComponent(url)}&mode=exact&date=${today}`,
           {
             headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
           }
@@ -335,11 +327,12 @@ async function fetchAhrefsUrlRatings(
           return { url, urlRating: 0, backlinks: 0, refDomains: 0 };
         }
         const data = await res.json();
+        const m = data.metrics || data;
         return {
           url,
           urlRating: 0, // backlinks-stats doesn't return UR, keep domain DR as fallback
-          backlinks: data.live ?? data.all_time ?? 0,
-          refDomains: data.live_refdomains ?? data.all_time_refdomains ?? 0,
+          backlinks: m.live ?? m.all_time ?? 0,
+          refDomains: m.live_refdomains ?? m.all_time_refdomains ?? 0,
         };
       } catch {
         return { url, urlRating: 0, backlinks: 0, refDomains: 0 };

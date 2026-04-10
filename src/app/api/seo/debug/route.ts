@@ -118,7 +118,7 @@ export async function GET() {
     const extraEndpoints: Record<string, string> = {
       "backlinks-stats": `https://api.ahrefs.com/v3/site-explorer/backlinks-stats?target=sequel.io&mode=domain&date=${today}`,
       "metrics": `https://api.ahrefs.com/v3/site-explorer/metrics?target=sequel.io&mode=domain&date=${today}`,
-      "backlinks-stats-url": `https://api.ahrefs.com/v3/site-explorer/backlinks-stats?target=https://sequel.io/&mode=url&date=${today}`,
+      "backlinks-stats-page": `https://api.ahrefs.com/v3/site-explorer/backlinks-stats?target=https://sequel.io/&mode=exact&date=${today}`,
     };
 
     const ahrefsEndpoints: Record<string, unknown> = {};
