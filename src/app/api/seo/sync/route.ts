@@ -461,16 +461,16 @@ export async function POST() {
     const urlRatings = await fetchAhrefsUrlRatings(topUrls);
 
     // 7. Save Ahrefs domain metrics to history table
-    try {
-      await supabase.from("ahrefs_domain_metrics").insert({
-        domain_rating: domainRating,
-        total_backlinks: totalBacklinks,
-        referring_domains: domainRefDomains,
-        ahrefs_rank: ahrefsRank,
-      });
-      console.log("SEO Sync: saved Ahrefs domain metrics to history");
-    } catch (err) {
-      console.warn("SEO Sync: failed to save Ahrefs domain metrics:", err);
+    const ahrefsInsert = await supabase.from("ahrefs_domain_metrics").insert({
+      domain_rating: domainRating,
+      total_backlinks: totalBacklinks,
+      referring_domains: domainRefDomains,
+      ahrefs_rank: ahrefsRank,
+    });
+    if (ahrefsInsert.error) {
+      console.error("SEO Sync: ahrefs_domain_metrics insert FAILED:", ahrefsInsert.error.message);
+    } else {
+      console.log(`SEO Sync: saved Ahrefs domain metrics — DR ${domainRating}, ${totalBacklinks} backlinks, ${domainRefDomains} ref domains`);
     }
 
     // 8. Calculate scores and build rows
@@ -551,6 +551,8 @@ export async function POST() {
         total_backlinks: totalBacklinks,
         referring_domains: domainRefDomains,
         pages_with_url_rating: urlRatings.size,
+        history_saved: !ahrefsInsert.error,
+        history_error: ahrefsInsert.error?.message || null,
       },
     });
   } catch (err) {
