@@ -1,11 +1,16 @@
 /**
  * Module registry — every feature in the app is a toggleable module.
  *
- * The sidebar, settings, and onboarding all read from this single source
+ * The sidebar, modules page, and onboarding all read from this single source
  * of truth. Each module maps to a top-level route and a sidebar entry.
+ *
+ * CORE modules (Chat, Agent Builder, Voice Input, LinkedIn Ghost Writer)
+ * are enabled for ALL roles by default and come standard with every account.
  */
 
 export type UserRole = "marketing" | "sales" | "leadership" | "custom";
+
+const ALL_ROLES: UserRole[] = ["marketing", "sales", "leadership", "custom"];
 
 export interface AppModule {
   id: string;
@@ -19,17 +24,21 @@ export interface AppModule {
   defaultRoles: UserRole[];
   /** Section in sidebar: "workspace" or "shared" */
   section: "workspace" | "shared";
+  /** If true, this module is a core feature and always included */
+  core?: boolean;
 }
 
 export const MODULES: AppModule[] = [
+  // ── Core modules (standard in every account) ──
   {
     id: "chat",
     displayName: "Chat",
     description: "Ask the Brand Brain anything — grounded in your company data",
     path: "/chat",
     iconKey: "Chat",
-    defaultRoles: ["marketing", "sales", "leadership", "custom"],
+    defaultRoles: ALL_ROLES,
     section: "workspace",
+    core: true,
   },
   {
     id: "agents",
@@ -37,9 +46,61 @@ export const MODULES: AppModule[] = [
     description: "Create and run AI agents that inherit your brand brain",
     path: "/agents",
     iconKey: "Agents",
-    defaultRoles: ["marketing"],
+    defaultRoles: ALL_ROLES,
+    section: "workspace",
+    core: true,
+  },
+  {
+    id: "dictate",
+    displayName: "Voice Input",
+    description: "Dictate notes, ideas, and content with voice",
+    path: "/dictate",
+    iconKey: "Dictate",
+    defaultRoles: ALL_ROLES,
+    section: "workspace",
+    core: true,
+  },
+  {
+    id: "linkedin",
+    displayName: "LinkedIn Ghost Writer",
+    description: "Write and publish LinkedIn content in your voice",
+    path: "/linkedin",
+    iconKey: "LinkedIn",
+    defaultRoles: ALL_ROLES,
+    section: "workspace",
+    core: true,
+  },
+
+  // ── Additional workspace modules ──
+  {
+    id: "decks",
+    displayName: "Deck Builder",
+    description: "Generate branded slide decks from your content and data",
+    path: "/decks",
+    iconKey: "Decks",
+    defaultRoles: ["sales", "marketing"],
     section: "workspace",
   },
+  {
+    id: "skills",
+    displayName: "Skills",
+    description: "GTM skill marketplace — install tools that connect to your Brain",
+    path: "/skills",
+    iconKey: "Skills",
+    defaultRoles: ALL_ROLES,
+    section: "workspace",
+  },
+  {
+    id: "outputs",
+    displayName: "Outputs",
+    description: "Browse all saved AI outputs and exports",
+    path: "/outputs",
+    iconKey: "Outputs",
+    defaultRoles: ALL_ROLES,
+    section: "workspace",
+  },
+
+  // ── Shared modules ──
   {
     id: "content",
     displayName: "Content Brain",
@@ -59,15 +120,6 @@ export const MODULES: AppModule[] = [
     section: "shared",
   },
   {
-    id: "decks",
-    displayName: "Deck Builder",
-    description: "Generate branded slide decks from your content and data",
-    path: "/decks",
-    iconKey: "Decks",
-    defaultRoles: ["sales", "marketing"],
-    section: "workspace",
-  },
-  {
     id: "competitors",
     displayName: "Competitive Intel",
     description: "Monitor competitors, auto-generate battlecards",
@@ -75,15 +127,6 @@ export const MODULES: AppModule[] = [
     iconKey: "Competitors",
     defaultRoles: ["sales", "marketing"],
     section: "shared",
-  },
-  {
-    id: "dictate",
-    displayName: "Voice Input",
-    description: "Dictate notes, ideas, and content with voice",
-    path: "/dictate",
-    iconKey: "Dictate",
-    defaultRoles: ["marketing", "sales", "leadership", "custom"],
-    section: "workspace",
   },
   {
     id: "refresh",
@@ -95,31 +138,13 @@ export const MODULES: AppModule[] = [
     section: "shared",
   },
   {
-    id: "linkedin",
-    displayName: "Content Editor",
-    description: "Write and publish LinkedIn content in your voice",
-    path: "/linkedin",
-    iconKey: "LinkedIn",
-    defaultRoles: ["marketing"],
-    section: "workspace",
-  },
-  {
-    id: "outputs",
-    displayName: "Outputs",
-    description: "Browse all saved AI outputs and exports",
-    path: "/outputs",
-    iconKey: "Outputs",
-    defaultRoles: ["marketing", "sales", "leadership", "custom"],
-    section: "workspace",
-  },
-  {
-    id: "skills",
-    displayName: "Skills",
-    description: "GTM skill marketplace — install tools that connect to your Brain",
-    path: "/skills",
-    iconKey: "Skills",
-    defaultRoles: ["marketing", "sales", "leadership", "custom"],
-    section: "workspace",
+    id: "todos",
+    displayName: "To-Do's",
+    description: "Talk through your day — AI creates a checkable to-do list",
+    path: "/todos",
+    iconKey: "Todos",
+    defaultRoles: ALL_ROLES,
+    section: "shared",
   },
   {
     id: "requests",
@@ -131,12 +156,21 @@ export const MODULES: AppModule[] = [
     section: "shared",
   },
   {
+    id: "modules",
+    displayName: "Modules",
+    description: "Toggle which tools appear in your sidebar",
+    path: "/modules",
+    iconKey: "Modules",
+    defaultRoles: ALL_ROLES,
+    section: "shared",
+  },
+  {
     id: "brain",
     displayName: "Brain",
     description: "View and manage brand docs, voice, and governance layer",
     path: "/brain",
     iconKey: "Brain",
-    defaultRoles: ["marketing", "sales", "leadership", "custom"],
+    defaultRoles: ALL_ROLES,
     section: "shared",
   },
 ];
