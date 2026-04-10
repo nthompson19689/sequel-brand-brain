@@ -16,6 +16,8 @@ interface ExecutiveViewProps {
   /* eslint-disable @typescript-eslint/no-explicit-any */
   pages: any[];
   summary: any;
+  /** Incremented after each sync to trigger re-fetch */
+  refreshKey?: number;
 }
 
 function pctChange(current: number, previous: number): number | null {
@@ -23,7 +25,7 @@ function pctChange(current: number, previous: number): number | null {
   return ((current - previous) / previous) * 100;
 }
 
-export default function ExecutiveView({ pages, summary }: ExecutiveViewProps) {
+export default function ExecutiveView({ pages, summary, refreshKey }: ExecutiveViewProps) {
   // Traffic trend (from timeseries endpoint)
   const [trafficTrend, setTrafficTrend] = useState<{ current: number; previous: number } | null>(null);
   // Ahrefs domain metrics
@@ -56,7 +58,7 @@ export default function ExecutiveView({ pages, summary }: ExecutiveViewProps) {
         }
       } catch { /* ignore */ }
     })();
-  }, []);
+  }, [refreshKey]);
 
   const totalSessions = pages.reduce((s, p) => s + (p.sessions || 0), 0);
   const totalConversions = pages.reduce((s, p) => s + (p.conversions || 0), 0);

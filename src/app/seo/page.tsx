@@ -172,6 +172,7 @@ export default function SeoPage() {
 
   // View tab: Executive (default) or Tactical
   const [viewTab, setViewTab] = useState<SeoTab>("executive");
+  const [syncCount, setSyncCount] = useState(0);
 
   // ─── Data fetching ─────────────────────────────────────────────────────────
 
@@ -250,6 +251,7 @@ export default function SeoPage() {
         setSyncSuccess(msg);
       }
       await loadDashboard();
+      setSyncCount((c) => c + 1);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error";
       setSyncError(`Sync request failed: ${msg}`);
@@ -481,6 +483,7 @@ export default function SeoPage() {
           <ExecutiveView
             pages={pages}
             summary={summary}
+            refreshKey={syncCount}
           />
         )}
 
