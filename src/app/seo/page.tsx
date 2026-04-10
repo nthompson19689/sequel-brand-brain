@@ -240,8 +240,12 @@ export default function SeoPage() {
         setSyncError(data.error || `Sync failed with HTTP ${res.status}`);
       } else {
         const s = data.summary;
+        const a = data.ahrefs;
+        const ahrefsInfo = a
+          ? ` | Ahrefs: ${a.api_key_set ? `DR ${a.domain_rating}, ${a.total_backlinks} backlinks, ${a.referring_domains} ref domains, ${a.pages_with_url_rating} pages with UR` : "API key not set"}`
+          : "";
         const msg = s
-          ? `Synced ${s.total} pages (${s.working} working, ${s.needs_push} needs push, ${s.not_working} not working). GSC data has a 2-3 day lag — numbers update when Google processes new data.`
+          ? `Synced ${s.total} pages (${s.working} working, ${s.needs_push} needs push, ${s.not_working} not working)${ahrefsInfo}`
           : "Sync completed but returned no summary.";
         setSyncSuccess(msg);
       }

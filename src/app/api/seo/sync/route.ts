@@ -519,7 +519,18 @@ export async function POST() {
 
     console.log(`SEO Sync: complete — ${summary.total} pages (${summary.working} working, ${summary.needs_push} needs push, ${summary.not_working} not working)`);
 
-    return Response.json({ status: "sync complete", summary });
+    return Response.json({
+      status: "sync complete",
+      summary,
+      ahrefs: {
+        api_key_set: !!process.env.AHREFS_API_KEY,
+        domain_rating: domainRating,
+        ahrefs_rank: ahrefsRank,
+        total_backlinks: totalBacklinks,
+        referring_domains: domainRefDomains,
+        pages_with_url_rating: urlRatings.size,
+      },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     console.error("SEO Sync error:", message);
