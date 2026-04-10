@@ -34,7 +34,10 @@ export function usePreferences() {
 
 export function PreferencesProvider({ children }: { children: React.ReactNode }) {
   const { user, profile } = useAuth();
-  const [enabledModules, setEnabledModules] = useState<string[]>([]);
+  // Initialize with ALL modules so the sidebar isn't empty while loading
+  const [enabledModules, setEnabledModules] = useState<string[]>(
+    MODULES.map((m) => m.id)
+  );
   const [moduleRole, setModuleRole] = useState<UserRole | null>(null);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
   const [loading, setLoading] = useState(true);

@@ -94,7 +94,7 @@ export default function Sidebar() {
   const pathname = usePathname();
   const { workspaces, currentWorkspace, switchWorkspace } = useWorkspace();
   const { profile, signOut } = useAuth();
-  const { enabledModules } = usePreferences();
+  const { enabledModules, loading: prefLoading } = usePreferences();
   const [wsOpen, setWsOpen] = useState(false);
 
   const displayName = profile?.full_name || "User";
@@ -106,8 +106,11 @@ export default function Sidebar() {
     .toUpperCase()
     .slice(0, 2);
 
-  // Filter modules by what the user has enabled, preserving registry order
-  const enabledSet = useMemo(() => new Set(enabledModules), [enabledModules]);
+  // While preferences are loading, show everything. Once loaded, filter.
+  const enabledSet = useMemo(
+    () => prefLoading ? new Set(MODULES.map((m) => m.id)) : new Set(enabledModules),
+    [enabledModules, prefLoading]
+  );
 
   const workspaceItems = useMemo(
     () => MODULES.filter((m) => m.section === "workspace" && enabledSet.has(m.id)),
