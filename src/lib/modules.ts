@@ -76,7 +76,7 @@ export const MODULES: AppModule[] = [
   // ── Additional workspace modules ──
   {
     id: "docs",
-    displayName: "Docs",
+    displayName: "CX Docs",
     description: "Customer documentation — turn transcripts and tickets into a knowledge base",
     path: "/docs",
     iconKey: "Docs",
@@ -85,7 +85,7 @@ export const MODULES: AppModule[] = [
   },
   {
     id: "events",
-    displayName: "Events",
+    displayName: "Webinars/Events",
     description: "Plan, promote, and repurpose webinars, workshops, and events",
     path: "/events",
     iconKey: "Events",
@@ -94,7 +94,7 @@ export const MODULES: AppModule[] = [
   },
   {
     id: "studio",
-    displayName: "Studio",
+    displayName: "SME Studio",
     description: "Turn transcripts and recordings into blog posts, newsletters, and LinkedIn content",
     path: "/studio",
     iconKey: "Studio",
