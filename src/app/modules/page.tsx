@@ -1,10 +1,11 @@
 "use client";
 
+import { useState, useEffect, useMemo } from "react";
 import { usePreferences } from "@/contexts/PreferencesContext";
 import { MODULES } from "@/lib/modules";
 
 /**
- * Inline icon SVGs — same as sidebar, keyed by iconKey.
+ * Inline icon SVGs keyed by module iconKey.
  */
 const ICONS: Record<string, React.ReactNode> = {
   Chat: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 0 1 1.037-.443 48.3 48.3 0 0 0 5.862-.498c1.585-.233 2.708-1.626 2.708-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" /></svg>,
@@ -25,24 +26,101 @@ const ICONS: Record<string, React.ReactNode> = {
 };
 
 export default function ModulesPage() {
-  const { enabledModules, toggleModule, moduleRole } = usePreferences();
+  const { enabledModules, setModules, moduleRole } = usePreferences();
 
-  const workspaceModules = MODULES.filter((m) => m.section === "workspace");
+  // Local draft state — toggles update this, NOT the context directly
+  const [draft, setDraft] = useState<string[]>(enabledModules);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  // Sync draft when enabledModules loads from Supabase
+  useEffect(() => {
+    setDraft(enabledModules);
+  }, [enabledModules]);
+
+  // Check if draft differs from saved state
+  const hasChanges = useMemo(() => {
+    if (draft.length !== enabledModules.length) return true;
+    const sorted1 = [...draft].sort();
+    const sorted2 = [...enabledModules].sort();
+    return sorted1.some((v, i) => v !== sorted2[i]);
+  }, [draft, enabledModules]);
+
+  function toggleDraft(moduleId: string) {
+    setDraft((prev) =>
+      prev.includes(moduleId)
+        ? prev.filter((m) => m !== moduleId)
+        : [...prev, moduleId]
+    );
+    setSaved(false);
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    // Ensure core modules are always included
+    const coreIds = MODULES.filter((m) => m.core).map((m) => m.id);
+    const withCores = [...new Set([...draft, ...coreIds])];
+    await setModules(withCores);
+    setDraft(withCores);
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  }
+
+  const workspaceModules = MODULES.filter((m) => m.section === "workspace" && !m.core);
   const sharedModules = MODULES.filter((m) => m.section === "shared" && m.id !== "modules");
 
   return (
     <div className="p-8 max-w-4xl mx-auto">
-      <div className="mb-8">
-        <h1 className="text-2xl font-semibold text-heading">Modules</h1>
-        <p className="mt-1 text-sm text-body">
-          Toggle which tools appear in your sidebar. Core modules are always available.
-        </p>
-        {moduleRole && (
-          <p className="text-xs text-muted mt-1">
-            Current preset: <span className="capitalize font-medium">{moduleRole}</span>
+      {/* Header with Save button */}
+      <div className="flex items-start justify-between mb-8">
+        <div>
+          <h1 className="text-2xl font-semibold text-heading">Modules</h1>
+          <p className="mt-1 text-sm text-body">
+            Choose which tools appear in your sidebar. Core modules are always available.
           </p>
-        )}
+          {moduleRole && (
+            <p className="text-xs text-muted mt-1">
+              Current preset: <span className="capitalize font-medium">{moduleRole}</span>
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          {saved && (
+            <span className="text-sm text-green-600 font-medium flex items-center gap-1">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+              </svg>
+              Saved
+            </span>
+          )}
+          <button
+            onClick={handleSave}
+            disabled={!hasChanges || saving}
+            className={`px-5 py-2.5 text-sm font-medium rounded-xl transition-colors shadow-sm ${
+              hasChanges
+                ? "text-white bg-brand-500 hover:bg-brand-600"
+                : "text-muted bg-surface-raised cursor-not-allowed"
+            }`}
+          >
+            {saving ? "Saving..." : "Save Changes"}
+          </button>
+        </div>
       </div>
+
+      {/* Unsaved changes banner */}
+      {hasChanges && (
+        <div className="mb-6 p-3 rounded-card border border-brand-200 bg-brand-50/50 flex items-center justify-between">
+          <p className="text-sm text-brand-700">You have unsaved changes to your modules.</p>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="text-sm font-medium text-brand-600 hover:text-brand-700"
+          >
+            Save now
+          </button>
+        </div>
+      )}
 
       {/* Core modules — always on */}
       <div className="mb-8">
@@ -71,48 +149,50 @@ export default function ModulesPage() {
       </div>
 
       {/* Workspace modules */}
-      <div className="mb-8">
-        <h2 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">
-          Workspace
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {workspaceModules.filter((m) => !m.core).map((mod) => {
-            const enabled = enabledModules.includes(mod.id);
-            return (
-              <button
-                key={mod.id}
-                onClick={() => toggleModule(mod.id)}
-                className={`flex items-start gap-3 p-4 rounded-card border text-left transition-all ${
-                  enabled
-                    ? "border-brand-200 bg-surface-card shadow-card"
-                    : "border-border bg-surface opacity-60"
-                }`}
-              >
-                <div className={`mt-0.5 shrink-0 ${enabled ? "text-brand-500" : "text-muted"}`}>
-                  {ICONS[mod.iconKey] || ICONS.Chat}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-heading">{mod.displayName}</span>
-                    <div
-                      className={`w-8 h-[18px] rounded-full transition-colors relative ${
-                        enabled ? "bg-brand-500" : "bg-border"
-                      }`}
-                    >
-                      <div
-                        className={`absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white transition-transform shadow-sm ${
-                          enabled ? "left-[18px]" : "left-[2px]"
-                        }`}
-                      />
-                    </div>
+      {workspaceModules.length > 0 && (
+        <div className="mb-8">
+          <h2 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">
+            Workspace
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {workspaceModules.map((mod) => {
+              const enabled = draft.includes(mod.id);
+              return (
+                <button
+                  key={mod.id}
+                  onClick={() => toggleDraft(mod.id)}
+                  className={`flex items-start gap-3 p-4 rounded-card border text-left transition-all ${
+                    enabled
+                      ? "border-brand-200 bg-surface-card shadow-card"
+                      : "border-border bg-surface opacity-60"
+                  }`}
+                >
+                  <div className={`mt-0.5 shrink-0 ${enabled ? "text-brand-500" : "text-muted"}`}>
+                    {ICONS[mod.iconKey] || ICONS.Chat}
                   </div>
-                  <p className="text-xs text-body mt-0.5">{mod.description}</p>
-                </div>
-              </button>
-            );
-          })}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-heading">{mod.displayName}</span>
+                      <div
+                        className={`w-8 h-[18px] rounded-full transition-colors relative ${
+                          enabled ? "bg-brand-500" : "bg-border"
+                        }`}
+                      >
+                        <div
+                          className={`absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white transition-transform shadow-sm ${
+                            enabled ? "left-[18px]" : "left-[2px]"
+                          }`}
+                        />
+                      </div>
+                    </div>
+                    <p className="text-xs text-body mt-0.5">{mod.description}</p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Shared modules */}
       <div className="mb-8">
@@ -121,11 +201,11 @@ export default function ModulesPage() {
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {sharedModules.map((mod) => {
-            const enabled = enabledModules.includes(mod.id);
+            const enabled = draft.includes(mod.id);
             return (
               <button
                 key={mod.id}
-                onClick={() => toggleModule(mod.id)}
+                onClick={() => toggleDraft(mod.id)}
                 className={`flex items-start gap-3 p-4 rounded-card border text-left transition-all ${
                   enabled
                     ? "border-brand-200 bg-surface-card shadow-card"
