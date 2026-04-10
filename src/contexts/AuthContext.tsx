@@ -15,6 +15,7 @@ interface Profile {
   linkedin_url: string | null;
   linkedin_voice: Record<string, unknown> | null;
   linkedin_samples: string[] | null;
+  module_role: string | null;
 }
 
 interface AuthCtx {
@@ -43,7 +44,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const { data } = await supabase
         .from("profiles")
-        .select("id, full_name, role, avatar_url, is_admin, is_active, linkedin_url, linkedin_voice, linkedin_samples")
+        .select("id, full_name, role, avatar_url, is_admin, is_active, linkedin_url, linkedin_voice, linkedin_samples, module_role")
         .eq("id", userId)
         .single();
       setProfile(data || null);
