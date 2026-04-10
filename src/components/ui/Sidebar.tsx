@@ -109,13 +109,15 @@ export default function Sidebar() {
   // Directly read from context — initializes with all modules, updates on save
   const enabledSet = useMemo(() => new Set(enabledModules), [enabledModules]);
 
+  const isAdmin = profile?.is_admin ?? false;
+
   const workspaceItems = useMemo(
-    () => MODULES.filter((m) => m.section === "workspace" && enabledSet.has(m.id)),
-    [enabledSet]
+    () => MODULES.filter((m) => m.section === "workspace" && enabledSet.has(m.id) && (!m.adminOnly || isAdmin)),
+    [enabledSet, isAdmin]
   );
   const sharedItems = useMemo(
-    () => MODULES.filter((m) => m.section === "shared" && enabledSet.has(m.id)),
-    [enabledSet]
+    () => MODULES.filter((m) => m.section === "shared" && enabledSet.has(m.id) && (!m.adminOnly || isAdmin)),
+    [enabledSet, isAdmin]
   );
 
   return (

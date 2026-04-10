@@ -385,11 +385,10 @@ export default function SettingsPage() {
         {/* ======================== */}
         {/* API Key Configuration    */}
         {/* ======================== */}
-        {profile?.is_admin && (
-          <div className="bg-[#1A1228] border border-[#2A2040] rounded-xl p-6 mb-6">
+        <div className="bg-[#1A1228] border border-[#2A2040] rounded-xl p-6 mb-6">
             <h2 className="text-lg font-semibold mb-1">API Configuration</h2>
             <p className="text-sm text-gray-400 mb-5">
-              Bring your own Anthropic API key and MCP server URLs. Admin only.
+              Bring your own Anthropic API key and MCP server URLs for this workspace.
             </p>
 
             {/* Anthropic API Key */}
@@ -472,7 +471,6 @@ export default function SettingsPage() {
               </div>
             </div>
           </div>
-        )}
 
         {/* ======================== */}
         {/* LinkedIn Voice Profile   */}

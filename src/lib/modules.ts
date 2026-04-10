@@ -26,6 +26,8 @@ export interface AppModule {
   section: "workspace" | "shared";
   /** If true, this module is a core feature and always included */
   core?: boolean;
+  /** If true, only users with is_admin see this module */
+  adminOnly?: boolean;
 }
 
 export const MODULES: AppModule[] = [
@@ -172,6 +174,7 @@ export const MODULES: AppModule[] = [
     iconKey: "Brain",
     defaultRoles: ALL_ROLES,
     section: "shared",
+    adminOnly: true,
   },
 ];
 
