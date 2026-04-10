@@ -140,6 +140,15 @@ export const MODULES: AppModule[] = [
     section: "shared",
   },
   {
+    id: "abm",
+    displayName: "ABM",
+    description: "Account-based marketing — research, monitor, and engage target accounts",
+    path: "/abm",
+    iconKey: "ABM",
+    defaultRoles: ["sales", "marketing"],
+    section: "shared",
+  },
+  {
     id: "todos",
     displayName: "To-Do's",
     description: "Talk through your day — AI creates a checkable to-do list",
