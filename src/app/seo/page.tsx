@@ -145,6 +145,7 @@ export default function SeoPage() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [syncSuccess, setSyncSuccess] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<StatusFilter>("all");
   const [sortBy, setSortBy] = useState<SortKey>("health_score");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
@@ -223,10 +224,20 @@ export default function SeoPage() {
       const data = await res.json();
       if (!res.ok) {
         setSyncError(data.error || "Sync failed");
+      } else {
+        // Show what was synced
+        const s = data.summary;
+        if (s) {
+          setSyncError(null);
+          // Use syncError display temporarily for success message
+          const msg = `Synced ${s.total} pages from GSC (last 28 days). ${s.working} working, ${s.needs_push} needs push, ${s.not_working} not working. Note: Google Search Console data has a 2-3 day lag.`;
+          setSyncSuccess(msg);
+          setTimeout(() => setSyncSuccess(null), 8000);
+        }
       }
       await loadDashboard();
     } catch {
-      setSyncError("Sync request failed");
+      setSyncError("Sync request failed — check Vercel logs for details");
     }
     setSyncing(false);
   }
@@ -435,6 +446,13 @@ export default function SeoPage() {
         {syncError && (
           <div className="mb-6 p-3 rounded-lg bg-red-900/30 border border-red-800/40 text-red-300 text-sm">
             {syncError}
+          </div>
+        )}
+
+        {/* Sync success */}
+        {syncSuccess && (
+          <div className="mb-6 p-3 rounded-lg bg-green-900/30 border border-green-800/40 text-green-300 text-sm">
+            {syncSuccess}
           </div>
         )}
 
