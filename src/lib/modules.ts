@@ -75,6 +75,15 @@ export const MODULES: AppModule[] = [
 
   // ── Additional workspace modules ──
   {
+    id: "outbound",
+    displayName: "Outbound",
+    description: "Prospect research, sequences, and daily action center",
+    path: "/outbound",
+    iconKey: "Outbound",
+    defaultRoles: ["sales"],
+    section: "workspace",
+  },
+  {
     id: "decks",
     displayName: "Deck Builder",
     description: "Generate branded slide decks from your content and data",
