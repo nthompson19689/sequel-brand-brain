@@ -75,6 +75,15 @@ export const MODULES: AppModule[] = [
 
   // ── Additional workspace modules ──
   {
+    id: "events",
+    displayName: "Events",
+    description: "Plan, promote, and repurpose webinars, workshops, and events",
+    path: "/events",
+    iconKey: "Events",
+    defaultRoles: ["marketing"],
+    section: "workspace",
+  },
+  {
     id: "studio",
     displayName: "Studio",
     description: "Turn transcripts and recordings into blog posts, newsletters, and LinkedIn content",
