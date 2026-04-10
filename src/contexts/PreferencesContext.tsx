@@ -52,8 +52,8 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
       const res = await fetch("/api/preferences");
       if (res.ok) {
         const data = await res.json();
-        if (data.preferences) {
-          setEnabledModules(data.preferences.enabled_modules || []);
+        if (data.preferences && Array.isArray(data.preferences.enabled_modules) && data.preferences.enabled_modules.length > 0) {
+          setEnabledModules(data.preferences.enabled_modules);
           setNeedsOnboarding(false);
         } else {
           // No preferences row yet — check if they have a role
@@ -65,38 +65,49 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
             setEnabledModules(defaults);
             setNeedsOnboarding(false);
           } else {
-            // First login — needs onboarding
-            setEnabledModules(MODULES.map((m) => m.id)); // show all until they choose
+            // No role yet — show all modules, flag for onboarding
+            setEnabledModules(MODULES.map((m) => m.id));
             setNeedsOnboarding(true);
           }
         }
+      } else {
+        // API error (table might not exist) — show all modules
+        console.warn("[Preferences] API returned", res.status);
+        setEnabledModules(MODULES.map((m) => m.id));
       }
     } catch (err) {
       console.error("[Preferences] load failed:", err);
-      // Fallback: show all modules
       setEnabledModules(MODULES.map((m) => m.id));
     } finally {
       setLoading(false);
     }
   }, [user?.id, profile]);
 
+  // Fire when user is available — don't wait for profile
   useEffect(() => {
-    if (profile !== null) {
-      const role = profile?.module_role as UserRole | null;
-      setModuleRole(role);
+    if (user?.id) {
+      if (profile) {
+        setModuleRole(profile.module_role as UserRole | null);
+      }
       fetchPreferences();
     }
-  }, [profile, fetchPreferences]);
+  }, [user?.id, profile, fetchPreferences]);
 
   async function saveModules(moduleIds: string[]) {
     try {
-      await fetch("/api/preferences", {
+      const res = await fetch("/api/preferences", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabled_modules: moduleIds }),
       });
-    } catch {
-      // non-critical
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        console.error("[Preferences] save failed:", res.status, err);
+      } else {
+        console.log("[Preferences] saved", moduleIds.length, "modules to Supabase");
+      }
+    } catch (err) {
+      console.error("[Preferences] save error:", err);
     }
   }
 
@@ -127,6 +138,7 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
   }
 
   async function setModulesHandler(moduleIds: string[]) {
+    console.log("[Preferences] setModules called with", moduleIds.length, "modules");
     setEnabledModules(moduleIds);
     await saveModules(moduleIds);
   }
