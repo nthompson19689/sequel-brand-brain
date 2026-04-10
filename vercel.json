@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/abm-triggers",
       "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/docs-review",
+      "schedule": "0 6 * * *"
     }
   ]
 }

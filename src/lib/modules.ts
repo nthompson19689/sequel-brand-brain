@@ -75,6 +75,15 @@ export const MODULES: AppModule[] = [
 
   // ── Additional workspace modules ──
   {
+    id: "docs",
+    displayName: "Docs",
+    description: "Customer documentation — turn transcripts and tickets into a knowledge base",
+    path: "/docs",
+    iconKey: "Docs",
+    defaultRoles: ["marketing", "leadership"],
+    section: "workspace",
+  },
+  {
     id: "events",
     displayName: "Events",
     description: "Plan, promote, and repurpose webinars, workshops, and events",
