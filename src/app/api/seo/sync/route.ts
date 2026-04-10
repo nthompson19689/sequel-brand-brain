@@ -254,18 +254,19 @@ async function fetchAhrefsDomainMetrics(): Promise<{
   if (!apiKey) return { totalBacklinks: 0, referringDomains: 0 };
 
   // Try multiple Ahrefs v3 endpoints — availability depends on subscription tier
+  const today = new Date().toISOString().split("T")[0];
   const endpoints = [
-    // Option 1: backlinks-stats (most widely available)
+    // Option 1: backlinks-stats (requires date param)
     {
-      url: `https://api.ahrefs.com/v3/site-explorer/backlinks-stats?target=sequel.io&mode=domain`,
+      url: `https://api.ahrefs.com/v3/site-explorer/backlinks-stats?target=sequel.io&mode=domain&date=${today}`,
       extract: (data: Record<string, unknown>) => ({
         totalBacklinks: (data.live as number) ?? (data.all_time as number) ?? 0,
         referringDomains: (data.live_refdomains as number) ?? (data.all_time_refdomains as number) ?? 0,
       }),
     },
-    // Option 2: metrics endpoint
+    // Option 2: metrics endpoint (requires date param)
     {
-      url: `https://api.ahrefs.com/v3/site-explorer/metrics?target=sequel.io&mode=domain`,
+      url: `https://api.ahrefs.com/v3/site-explorer/metrics?target=sequel.io&mode=domain&date=${today}`,
       extract: (data: Record<string, unknown>) => {
         const m = (data.metrics || data) as Record<string, number>;
         return {
@@ -316,10 +317,12 @@ async function fetchAhrefsUrlRatings(
   // Process in batches of 3 to avoid rate limits
   for (let i = 0; i < batch.length; i += 3) {
     const chunk = batch.slice(i, i + 3);
+    const today = new Date().toISOString().split("T")[0];
     const promises = chunk.map(async (url) => {
       try {
+        // Use backlinks-stats with mode=url for per-page data
         const res = await fetch(
-          `https://api.ahrefs.com/v3/site-explorer/url-rating?target=${encodeURIComponent(url)}`,
+          `https://api.ahrefs.com/v3/site-explorer/backlinks-stats?target=${encodeURIComponent(url)}&mode=url&date=${today}`,
           {
             headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
           }
@@ -327,23 +330,17 @@ async function fetchAhrefsUrlRatings(
         if (!res.ok) {
           if (i === 0) {
             const errBody = await res.text().catch(() => "");
-            console.warn(`Ahrefs url-rating failed: HTTP ${res.status} — ${errBody.slice(0, 200)}`);
+            console.warn(`Ahrefs per-page backlinks-stats failed: HTTP ${res.status} — ${errBody.slice(0, 200)}`);
           }
           return { url, urlRating: 0, backlinks: 0, refDomains: 0 };
         }
         const data = await res.json();
-        // Response structure: { url_rating: { url_rating: N, backlinks: N, refdomains: N } }
-        // or direct: { url_rating: N } depending on version
-        const ur = data.url_rating;
-        if (typeof ur === "object" && ur !== null) {
-          return {
-            url,
-            urlRating: ur.url_rating ?? 0,
-            backlinks: ur.backlinks ?? 0,
-            refDomains: ur.refdomains ?? 0,
-          };
-        }
-        return { url, urlRating: typeof ur === "number" ? ur : 0, backlinks: 0, refDomains: 0 };
+        return {
+          url,
+          urlRating: 0, // backlinks-stats doesn't return UR, keep domain DR as fallback
+          backlinks: data.live ?? data.all_time ?? 0,
+          refDomains: data.live_refdomains ?? data.all_time_refdomains ?? 0,
+        };
       } catch {
         return { url, urlRating: 0, backlinks: 0, refDomains: 0 };
       }

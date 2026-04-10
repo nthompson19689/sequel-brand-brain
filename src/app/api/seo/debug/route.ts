@@ -114,10 +114,11 @@ export async function GET() {
   // 5. Test Ahrefs additional endpoints (backlinks-stats, url-rating)
   if (process.env.AHREFS_API_KEY) {
     const apiKey = process.env.AHREFS_API_KEY;
+    const today = new Date().toISOString().split("T")[0];
     const extraEndpoints: Record<string, string> = {
-      "backlinks-stats": `https://api.ahrefs.com/v3/site-explorer/backlinks-stats?target=sequel.io&mode=domain`,
-      "metrics": `https://api.ahrefs.com/v3/site-explorer/metrics?target=sequel.io&mode=domain`,
-      "url-rating": `https://api.ahrefs.com/v3/site-explorer/url-rating?target=https://sequel.io/`,
+      "backlinks-stats": `https://api.ahrefs.com/v3/site-explorer/backlinks-stats?target=sequel.io&mode=domain&date=${today}`,
+      "metrics": `https://api.ahrefs.com/v3/site-explorer/metrics?target=sequel.io&mode=domain&date=${today}`,
+      "backlinks-stats-url": `https://api.ahrefs.com/v3/site-explorer/backlinks-stats?target=https://sequel.io/&mode=url&date=${today}`,
     };
 
     const ahrefsEndpoints: Record<string, unknown> = {};
