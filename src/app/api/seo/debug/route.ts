@@ -111,5 +111,34 @@ export async function GET() {
     results.ahrefs = { error: err instanceof Error ? err.message : String(err) };
   }
 
+  // 5. Test Ahrefs additional endpoints (backlinks-stats, url-rating)
+  if (process.env.AHREFS_API_KEY) {
+    const apiKey = process.env.AHREFS_API_KEY;
+    const extraEndpoints: Record<string, string> = {
+      "backlinks-stats": `https://api.ahrefs.com/v3/site-explorer/backlinks-stats?target=sequel.io&mode=domain`,
+      "metrics": `https://api.ahrefs.com/v3/site-explorer/metrics?target=sequel.io&mode=domain`,
+      "url-rating": `https://api.ahrefs.com/v3/site-explorer/url-rating?target=https://sequel.io/`,
+    };
+
+    const ahrefsEndpoints: Record<string, unknown> = {};
+    for (const [name, url] of Object.entries(extraEndpoints)) {
+      try {
+        const res = await fetch(url, {
+          headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
+        });
+        if (!res.ok) {
+          const body = await res.text().catch(() => "");
+          ahrefsEndpoints[name] = { status: res.status, error: body.slice(0, 300) };
+        } else {
+          const data = await res.json();
+          ahrefsEndpoints[name] = { status: "OK", data };
+        }
+      } catch (err) {
+        ahrefsEndpoints[name] = { error: err instanceof Error ? err.message : String(err) };
+      }
+    }
+    results.ahrefs_endpoints = ahrefsEndpoints;
+  }
+
   return Response.json(results, { status: 200 });
 }

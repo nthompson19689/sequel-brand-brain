@@ -253,40 +253,58 @@ async function fetchAhrefsDomainMetrics(): Promise<{
   const apiKey = process.env.AHREFS_API_KEY;
   if (!apiKey) return { totalBacklinks: 0, referringDomains: 0 };
 
-  try {
-    const res = await fetch(
-      `https://api.ahrefs.com/v3/site-explorer/metrics?target=sequel.io&mode=domain`,
-      {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          Accept: "application/json",
-        },
+  // Try multiple Ahrefs v3 endpoints — availability depends on subscription tier
+  const endpoints = [
+    // Option 1: backlinks-stats (most widely available)
+    {
+      url: `https://api.ahrefs.com/v3/site-explorer/backlinks-stats?target=sequel.io&mode=domain`,
+      extract: (data: Record<string, unknown>) => ({
+        totalBacklinks: (data.live as number) ?? (data.all_time as number) ?? 0,
+        referringDomains: (data.live_refdomains as number) ?? (data.all_time_refdomains as number) ?? 0,
+      }),
+    },
+    // Option 2: metrics endpoint
+    {
+      url: `https://api.ahrefs.com/v3/site-explorer/metrics?target=sequel.io&mode=domain`,
+      extract: (data: Record<string, unknown>) => {
+        const m = (data.metrics || data) as Record<string, number>;
+        return {
+          totalBacklinks: m.live ?? m.backlinks ?? m.all ?? 0,
+          referringDomains: m.live_refdomains ?? m.refdomains ?? 0,
+        };
+      },
+    },
+  ];
+
+  for (const ep of endpoints) {
+    try {
+      const res = await fetch(ep.url, {
+        headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
+      });
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => "");
+        console.warn(`Ahrefs ${ep.url.split("?")[0].split("/").pop()} failed: HTTP ${res.status} — ${errBody.slice(0, 200)}`);
+        continue;
       }
-    );
-
-    if (!res.ok) {
-      const errBody = await res.text();
-      console.warn(`Ahrefs metrics failed: HTTP ${res.status} — ${errBody}`);
-      return { totalBacklinks: 0, referringDomains: 0 };
+      const data = await res.json();
+      const result = ep.extract(data);
+      console.log(`Ahrefs: ${result.totalBacklinks} backlinks, ${result.referringDomains} referring domains (from ${ep.url.split("?")[0].split("/").pop()})`);
+      return result;
+    } catch (err) {
+      console.warn(`Ahrefs endpoint failed:`, err);
+      continue;
     }
-
-    const data = await res.json();
-    const metrics = data.metrics || {};
-    const totalBacklinks = metrics.live || metrics.backlinks || 0;
-    const referringDomains = metrics.live_refdomains || metrics.refdomains || 0;
-    console.log(`Ahrefs: ${totalBacklinks} backlinks, ${referringDomains} referring domains`);
-    return { totalBacklinks, referringDomains };
-  } catch (err) {
-    console.warn("Ahrefs metrics fetch failed:", err);
-    return { totalBacklinks: 0, referringDomains: 0 };
   }
+
+  console.warn("Ahrefs: all domain metrics endpoints failed, returning zeros");
+  return { totalBacklinks: 0, referringDomains: 0 };
 }
 
 // ─── Ahrefs: Per-page URL rating (top N pages only) ────────────────────────
 
 async function fetchAhrefsUrlRatings(
   urls: string[],
-  maxPages = 20
+  maxPages = 10
 ): Promise<Map<string, { urlRating: number; backlinks: number; refDomains: number }>> {
   const apiKey = process.env.AHREFS_API_KEY;
   const result = new Map<string, { urlRating: number; backlinks: number; refDomains: number }>();
@@ -295,28 +313,37 @@ async function fetchAhrefsUrlRatings(
   const batch = urls.slice(0, maxPages);
   console.log(`Ahrefs: fetching URL ratings for ${batch.length} pages...`);
 
-  // Process in batches of 5 to avoid rate limits
-  for (let i = 0; i < batch.length; i += 5) {
-    const chunk = batch.slice(i, i + 5);
+  // Process in batches of 3 to avoid rate limits
+  for (let i = 0; i < batch.length; i += 3) {
+    const chunk = batch.slice(i, i + 3);
     const promises = chunk.map(async (url) => {
       try {
         const res = await fetch(
           `https://api.ahrefs.com/v3/site-explorer/url-rating?target=${encodeURIComponent(url)}`,
           {
-            headers: {
-              Authorization: `Bearer ${apiKey}`,
-              Accept: "application/json",
-            },
+            headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
           }
         );
-        if (!res.ok) return { url, urlRating: 0, backlinks: 0, refDomains: 0 };
+        if (!res.ok) {
+          if (i === 0) {
+            const errBody = await res.text().catch(() => "");
+            console.warn(`Ahrefs url-rating failed: HTTP ${res.status} — ${errBody.slice(0, 200)}`);
+          }
+          return { url, urlRating: 0, backlinks: 0, refDomains: 0 };
+        }
         const data = await res.json();
-        return {
-          url,
-          urlRating: data.url_rating?.url_rating ?? 0,
-          backlinks: data.url_rating?.backlinks ?? 0,
-          refDomains: data.url_rating?.refdomains ?? 0,
-        };
+        // Response structure: { url_rating: { url_rating: N, backlinks: N, refdomains: N } }
+        // or direct: { url_rating: N } depending on version
+        const ur = data.url_rating;
+        if (typeof ur === "object" && ur !== null) {
+          return {
+            url,
+            urlRating: ur.url_rating ?? 0,
+            backlinks: ur.backlinks ?? 0,
+            refDomains: ur.refdomains ?? 0,
+          };
+        }
+        return { url, urlRating: typeof ur === "number" ? ur : 0, backlinks: 0, refDomains: 0 };
       } catch {
         return { url, urlRating: 0, backlinks: 0, refDomains: 0 };
       }
@@ -331,6 +358,11 @@ async function fetchAhrefsUrlRatings(
           refDomains: r.value.refDomains,
         });
       }
+    }
+
+    // Small delay between batches to avoid rate limits
+    if (i + 3 < batch.length) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
     }
   }
 
