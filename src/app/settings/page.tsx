@@ -10,6 +10,14 @@ export default function SettingsPage() {
   const { user, loading: authLoading } = useAuth();
   const { currentWorkspace } = useWorkspace();
 
+  // API usage state
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const [apiUsage, setApiUsage] = useState<any>(null);
+
+  useEffect(() => {
+    fetch("/api/outbound/usage").then(r => r.ok ? r.json() : { usage: null }).then(d => setApiUsage(d.usage));
+  }, []);
+
   // API key state
   const [apiKeyConfig, setApiKeyConfig] = useState<{
     has_key: boolean;
@@ -226,6 +234,38 @@ export default function SettingsPage() {
             </div>
           </div>
         </div>
+
+        {/* ======================== */}
+        {/* API Usage This Month     */}
+        {/* ======================== */}
+        {apiUsage && apiUsage.total_calls > 0 && (
+          <div className="bg-[#1A1228] border border-[#2A2040] rounded-xl p-6 mb-6">
+            <h2 className="text-lg font-semibold mb-1">API Usage</h2>
+            <p className="text-sm text-gray-400 mb-4">
+              Research API costs this month ({apiUsage.month})
+            </p>
+            <div className="grid grid-cols-3 gap-3 mb-4">
+              <div className="bg-[#0F0A1A] rounded-lg p-3 text-center">
+                <p className="text-[10px] text-gray-500 uppercase">Total Calls</p>
+                <p className="text-lg font-bold text-white">{apiUsage.total_calls}</p>
+              </div>
+              <div className="bg-[#0F0A1A] rounded-lg p-3 text-center">
+                <p className="text-[10px] text-gray-500 uppercase">Est. Cost</p>
+                <p className="text-lg font-bold text-white">${apiUsage.total_cost.toFixed(3)}</p>
+              </div>
+              <div className="bg-[#0F0A1A] rounded-lg p-3 text-center">
+                <p className="text-[10px] text-gray-500 uppercase">Services</p>
+                <p className="text-lg font-bold text-white">{Object.keys(apiUsage.by_service || {}).length}</p>
+              </div>
+            </div>
+            {Object.entries(apiUsage.by_service || {}).map(([service, stats]: [string, any]) => (
+              <div key={service} className="flex items-center justify-between py-2 border-t border-[#2A2040] text-xs">
+                <span className="text-gray-300 capitalize">{service}</span>
+                <span className="text-gray-500">{stats.calls} calls · ${stats.cost.toFixed(3)}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

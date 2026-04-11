@@ -1,41 +1,115 @@
 import { getClaudeClient } from "@/lib/claude";
 import { getSupabaseServerClient } from "@/lib/supabase";
 import { buildSystemBlocks } from "@/lib/brand-context";
+import { deepResearch } from "@/lib/perplexity";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 300;
 
-const RESEARCH_PROMPT = `You are a senior sales research analyst preparing a prospect briefing for an outbound rep.
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
-Your research must find SPECIFIC, ACTIONABLE intelligence — not generic company facts. Think like a rep who needs to write a message that gets a reply.
+function buildPerplexityQueries(prospect: {
+  first_name: string;
+  last_name: string;
+  company_name: string | null;
+  company_domain: string | null;
+  title: string | null;
+  seniority_level: string | null;
+  industry: string | null;
+  employee_count: string | null;
+}): string[] {
+  const company = prospect.company_name || prospect.company_domain || "";
+  if (!company) return [];
 
-Research these layers:
-1. THE PERSON — Search for their LinkedIn posts, articles, podcast appearances, conference talks, opinions they've shared publicly. Find something specific and human to reference.
-2. THE COMPANY — Website, about page, careers page (what are they hiring for? → infer priorities), blog, press releases, recent news.
-3. ROLE-SPECIFIC PAINS — What does someone with this title at this type/size of company typically struggle with?
-4. TIMING TRIGGERS — New hire announcements, funding, leadership changes, product launches, rapid hiring = urgency signals.
-5. TECH STACK — Infer from website source, job postings, G2/BuiltWith signals.
-6. PERSONAL HOOK — The ONE thing you'd lead with in a cold email to show you actually looked at them as a person.
+  const queries: string[] = [
+    `${company} recent news funding announcements 2026`,
+    `${company} product launches updates 2026`,
+    `${company} leadership changes hiring`,
+    `${company} tech stack tools they use`,
+    `${company} competitors market position`,
+  ];
+
+  // Smart queries based on prospect role
+  const titleLower = (prospect.title || "").toLowerCase();
+  if (titleLower.includes("marketing") || titleLower.includes("cmo") || titleLower.includes("growth")) {
+    queries.push(`${company} marketing strategy content approach`);
+  }
+  if (titleLower.includes("sales") || titleLower.includes("cro") || titleLower.includes("revenue")) {
+    queries.push(`${company} sales process go-to-market strategy`);
+  }
+  if (titleLower.includes("product") || titleLower.includes("cpo") || titleLower.includes("engineering")) {
+    queries.push(`${company} product roadmap engineering culture`);
+  }
+
+  // Smart queries based on company size
+  const sizeStr = (prospect.employee_count || "").toLowerCase();
+  const isSmall = sizeStr.includes("1-") || sizeStr.includes("10") || sizeStr.includes("50") || parseInt(sizeStr) < 50;
+  if (isSmall) {
+    queries.push(`${company} funding stage investors seed series`);
+  }
+
+  // Smart queries based on industry
+  const industryLower = (prospect.industry || "").toLowerCase();
+  if (industryLower.includes("saas") || industryLower.includes("software")) {
+    queries.push(`${company} pricing model customers case studies`);
+  }
+
+  return queries;
+}
+
+async function logApiUsage(
+  supabase: ReturnType<typeof getSupabaseServerClient>,
+  service: string,
+  endpoint: string,
+  tokensUsed: number,
+  costEstimate: number,
+  triggeredBy: string
+) {
+  if (!supabase) return;
+  try {
+    await supabase.from("api_usage_log").insert({
+      service, endpoint, tokens_used: tokensUsed,
+      cost_estimate: costEstimate, triggered_by: triggeredBy,
+    });
+  } catch { /* non-critical */ }
+}
+
+// ── Synthesis Prompt ─────────────────────────────────────────────────────────
+
+const SYNTHESIS_PROMPT = `You are a senior sales research analyst synthesizing raw research data into a prospect brief.
+
+CRITICAL RULES:
+- Only include facts that appear in the source material provided below
+- Tag EVERY claim with its source using these tags:
+  [PERPLEXITY — query: "the query that found this"]
+  [WEB — URL or description]
+  [BRAND_BRAIN — article or doc title]
+  [INFERRED — your reasoning]
+- Do NOT generate statistics, case studies, or quotes that are not in the provided sources
+- If a field cannot be filled from the available data, say "not found" rather than inferring
+- Personal hooks must reference SPECIFIC content the prospect actually created
 
 Return ONLY valid JSON:
 {
-  "company_summary": "2-3 sentences on what the company does and who they serve",
-  "role_analysis": "2-3 sentences on what this person likely cares about given their title and company stage",
-  "recent_activity": ["specific LinkedIn post or article they wrote", "conference talk", "podcast appearance"],
-  "pain_points": ["role-specific pain 1", "company-stage pain 2", "timing-based pain 3"],
-  "personal_hooks": ["specific thing about THEM — a post, opinion, career move, mutual connection"],
-  "tech_stack_signals": ["tool1", "tool2"],
-  "timing_triggers": ["trigger 1 with date", "trigger 2"],
-  "recommended_opening": "The exact first 2 sentences you'd write in a cold email to this person",
-  "recommended_product_angle": "Which specific value prop to lead with and why",
-  "relevant_proof_points": ["case study or stat that would resonate with them"]
+  "company_summary": "2-3 sentences with source tags",
+  "role_analysis": "2-3 sentences about what this person likely cares about [with source tags]",
+  "recent_activity": ["specific finding [SOURCE_TAG]"],
+  "pain_points": ["pain point [SOURCE_TAG]"],
+  "personal_hooks": ["specific thing about THEM [SOURCE_TAG]"],
+  "tech_stack_signals": ["tool [SOURCE_TAG]"],
+  "timing_triggers": ["trigger with date [SOURCE_TAG]"],
+  "recommended_opening": "The exact first 2 sentences for a cold email, referencing sourced facts",
+  "recommended_product_angle": "Which value prop to lead with and why [SOURCE_TAG]",
+  "relevant_proof_points": ["proof point from Brand Brain [SOURCE_TAG]"]
 }`;
+
+// ── Route Handler ────────────────────────────────────────────────────────────
 
 export async function POST(request: Request) {
   const supabase = getSupabaseServerClient();
   if (!supabase) return Response.json({ error: "Supabase not configured" }, { status: 500 });
 
-  const { prospect_id } = await request.json();
+  const { prospect_id, refresh } = await request.json();
   if (!prospect_id) return Response.json({ error: "prospect_id required" }, { status: 400 });
 
   // Load prospect
@@ -47,49 +121,158 @@ export async function POST(request: Request) {
 
   if (pErr || !prospect) return Response.json({ error: "Prospect not found" }, { status: 404 });
 
-  try {
-    const claude = getClaudeClient();
+  // ── Freshness Check ────────────────────────────────────────────────────────
+  // Skip Passes 1 & 2 if research exists from within the last 7 days (unless refresh=true)
+  let existingSources: Array<{ query: string; source: string; raw_response: string; extracted_facts: unknown[] }> = [];
+  let skipCollection = false;
 
-    // Pull brand context so research understands what WE sell (for value prop matching)
+  if (!refresh) {
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const { data: recentSources } = await supabase
+      .from("prospect_research_sources")
+      .select("query, source, raw_response, extracted_facts")
+      .eq("prospect_id", prospect_id)
+      .gte("retrieved_at", sevenDaysAgo);
+
+    if (recentSources && recentSources.length >= 3) {
+      existingSources = recentSources;
+      skipCollection = true;
+      console.log(`[Research] Using ${recentSources.length} cached sources for ${prospect.first_name} ${prospect.last_name} (< 7 days old)`);
+    }
+  }
+
+  try {
+    // ── PASS 1: Perplexity Company Deep Dive ─────────────────────────────────
+    if (!skipCollection) {
+      const queries = buildPerplexityQueries(prospect);
+      console.log(`[Research] Pass 1: Running ${queries.length} Perplexity queries for ${prospect.company_name || prospect.company_domain}`);
+
+      const perplexityResults: Array<{ query: string; content: string; citations: Array<{ url: string }> }> = [];
+
+      // Run Perplexity queries (batch of 3 at a time)
+      for (let i = 0; i < queries.length; i += 3) {
+        const batch = queries.slice(i, i + 3);
+        const results = await Promise.allSettled(
+          batch.map(async (q) => {
+            try {
+              const result = await deepResearch(q, "Provide specific, factual information with dates and numbers. Be concise.");
+              await logApiUsage(supabase, "perplexity", "sonar-pro", 4096, 0.005, "prospect_research");
+              return { query: q, content: result.content, citations: result.citations };
+            } catch (err) {
+              console.warn(`[Research] Perplexity query failed: "${q}"`, err);
+              return { query: q, content: "", citations: [] };
+            }
+          })
+        );
+
+        for (const r of results) {
+          if (r.status === "fulfilled") perplexityResults.push(r.value);
+        }
+
+        // Small delay between batches
+        if (i + 3 < queries.length) await new Promise(r => setTimeout(r, 500));
+      }
+
+      // Store Perplexity results
+      const sourceRows = perplexityResults
+        .filter(r => r.content)
+        .map(r => ({
+          prospect_id,
+          query: r.query,
+          source: "perplexity" as const,
+          raw_response: r.content,
+          extracted_facts: r.citations.map(c => c.url),
+        }));
+
+      if (sourceRows.length > 0) {
+        await supabase.from("prospect_research_sources").insert(sourceRows);
+      }
+
+      // ── PASS 2: Web Search for the Individual ──────────────────────────────
+      console.log(`[Research] Pass 2: Web search for ${prospect.first_name} ${prospect.last_name}`);
+
+      const claude = getClaudeClient();
+      const webSearchResponse = await claude.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 2048,
+        system: [{ type: "text", text: "Search for this person's recent public content, LinkedIn posts, articles, podcast appearances, and conference talks. Return a summary of what you found with specific details." }],
+        tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }],
+        messages: [{
+          role: "user",
+          content: `Find recent public content and activity for: ${prospect.first_name} ${prospect.last_name}, ${prospect.title || ""} at ${prospect.company_name || prospect.company_domain || ""}. LinkedIn: ${prospect.linkedin_url || "not provided"}`,
+        }],
+      });
+
+      let webSearchText = "";
+      for (const block of webSearchResponse.content) {
+        if (block.type === "text") webSearchText += block.text;
+      }
+
+      await logApiUsage(supabase, "web_search", "claude-web-search", 2048, 0.003, "prospect_research");
+
+      if (webSearchText) {
+        await supabase.from("prospect_research_sources").insert({
+          prospect_id,
+          query: `${prospect.first_name} ${prospect.last_name} LinkedIn content activity`,
+          source: "web_search",
+          raw_response: webSearchText,
+          extracted_facts: [],
+        });
+      }
+
+      // Reload all sources for synthesis
+      const { data: allSources } = await supabase
+        .from("prospect_research_sources")
+        .select("query, source, raw_response, extracted_facts")
+        .eq("prospect_id", prospect_id)
+        .order("retrieved_at", { ascending: false });
+
+      existingSources = allSources || [];
+    }
+
+    // ── PASS 3: Claude Synthesis with Source Attribution ──────────────────────
+    console.log(`[Research] Pass 3: Claude synthesis from ${existingSources.length} sources`);
+
+    // Build source material block
+    const sourceMaterial = existingSources.map((s, i) =>
+      `--- SOURCE ${i + 1} [${s.source.toUpperCase()} — query: "${s.query}"] ---\n${s.raw_response || "No data returned"}`
+    ).join("\n\n");
+
+    // Pull Brand Brain context for value prop matching
     const { blocks } = await buildSystemBlocks({
-      additionalContext: RESEARCH_PROMPT,
+      additionalContext: SYNTHESIS_PROMPT,
     });
 
-    const searchQueries = [
-      `${prospect.first_name} ${prospect.last_name} ${prospect.company_name || ""} LinkedIn`,
-      `${prospect.company_domain || prospect.company_name} company overview`,
-      `${prospect.company_domain || prospect.company_name} news funding`,
-      `${prospect.company_domain || prospect.company_name} careers hiring`,
-    ].filter(Boolean);
-
-    const response = await claude.messages.create({
+    const claude = getClaudeClient();
+    const synthesisResponse = await claude.messages.create({
       model: "claude-sonnet-4-20250514",
       max_tokens: 4096,
       system: blocks,
-      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 10 }],
       messages: [{
         role: "user",
-        content: `Research this prospect for outbound sales:
+        content: `Synthesize research for this prospect. ONLY use facts from the source material below. Tag every claim.
 
+PROSPECT:
 Name: ${prospect.first_name} ${prospect.last_name}
 Title: ${prospect.title || "Unknown"}
 Company: ${prospect.company_name || "Unknown"}
 Domain: ${prospect.company_domain || "Unknown"}
-LinkedIn: ${prospect.linkedin_url || "Not provided"}
 Seniority: ${prospect.seniority_level || "Unknown"}
 Industry: ${prospect.industry || "Unknown"}
+Company Size: ${prospect.employee_count || "Unknown"}
 
-Search for:
-${searchQueries.map((q, i) => `${i + 1}. "${q}"`).join("\n")}
+SOURCE MATERIAL (${existingSources.length} sources):
 
-Then match their pain points against OUR product value props from the Brand Brain above. What should we lead with?
+${sourceMaterial}
 
-Return the structured JSON as specified.`,
+Match their pain points against OUR product value props from the Brand Brain above. Tag any Brand Brain matches as [BRAND_BRAIN — doc name].`,
       }],
     });
 
+    await logApiUsage(supabase, "anthropic", "claude-sonnet-synthesis", 4096, 0.015, "prospect_research");
+
     let rawText = "";
-    for (const block of response.content) {
+    for (const block of synthesisResponse.content) {
       if (block.type === "text") rawText += block.text;
     }
 
@@ -105,7 +288,13 @@ Return the structured JSON as specified.`,
         researched_at: new Date().toISOString(),
       }, { onConflict: "prospect_id" });
 
-      return Response.json({ prospect_id, raw: rawText, parsed: false });
+      return Response.json({
+        prospect_id,
+        raw: rawText,
+        sources_used: existingSources.length,
+        from_cache: skipCollection,
+        parsed: false,
+      });
     }
 
     // Upsert research record
@@ -132,7 +321,13 @@ Return the structured JSON as specified.`,
       }).eq("id", prospect_id);
     }
 
-    return Response.json({ prospect_id, research, parsed: true });
+    return Response.json({
+      prospect_id,
+      research,
+      sources_used: existingSources.length,
+      from_cache: skipCollection,
+      parsed: true,
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Research failed";
     console.error("[Outbound Research]", msg);
