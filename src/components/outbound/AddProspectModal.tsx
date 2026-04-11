@@ -57,11 +57,14 @@ export default function AddProspectModal({ onClose, onAdded }: AddProspectModalP
     setCsvPreview(rows);
   }
 
+  const [error, setError] = useState<string | null>(null);
+
   async function handleManual() {
     if (!firstName.trim() || !lastName.trim()) return;
     setSaving(true);
+    setError(null);
     try {
-      await fetch("/api/outbound/prospects", {
+      const res = await fetch("/api/outbound/prospects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -75,8 +78,16 @@ export default function AddProspectModal({ onClose, onAdded }: AddProspectModalP
           seniority_level: seniority || null,
         }),
       });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || `Failed (HTTP ${res.status}). Run migration_016_outbound.sql in Supabase.`);
+        setSaving(false);
+        return;
+      }
       onAdded(); onClose();
-    } catch { /* ignore */ }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Request failed");
+    }
     setSaving(false);
   }
 
@@ -159,6 +170,7 @@ export default function AddProspectModal({ onClose, onAdded }: AddProspectModalP
                 {["C-suite", "VP", "Director", "Manager", "IC"].map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
+            {error && <p className="text-xs text-red-400 p-2 bg-red-900/20 rounded-lg">{error}</p>}
             <button onClick={handleManual} disabled={!firstName.trim() || !lastName.trim() || saving} className="w-full py-2.5 text-sm font-medium text-white bg-[#7C3AED] rounded-lg hover:bg-[#6D28D9] disabled:opacity-40 transition-colors">
               {saving ? "Adding..." : "Add Prospect"}
             </button>
