@@ -277,6 +277,33 @@ export function scanBannedPatterns(text: string): Array<{ pattern: string; match
   const fromToMatches = Array.from(text.matchAll(fromToRegex)).map((m) => m[0].slice(0, 60));
   if (fromToMatches.length > 1) violations.push({ pattern: "repeated 'From X to Y' construction", matches: fromToMatches, type: "construction" });
 
+  // Unsourced statistics — percentages without clear attribution
+  const unsourcedStatRegex = /\b\d{1,3}%\s+of\s+(?:B2B|SaaS|marketing|content|companies|teams|businesses|marketers|leaders|organizations|webinar|attendees)\b/gi;
+  const unsourcedStatMatches = Array.from(text.matchAll(unsourcedStatRegex)).map((m) => {
+    const start = Math.max(0, (m.index || 0) - 10);
+    const end = Math.min(text.length, (m.index || 0) + m[0].length + 30);
+    return text.slice(start, end);
+  });
+  if (unsourcedStatMatches.length > 0) violations.push({ pattern: "unsourced statistic (needs named source or reframe as observation)", matches: unsourcedStatMatches, type: "accuracy" });
+
+  // Vague attribution phrases
+  const vagueAttrRegex = /\b(?:studies\s+show|research\s+indicates|experts\s+(?:say|agree)|industry\s+(?:leaders|observers)\s+(?:agree|note|say)|many\s+teams\s+(?:are\s+)?finding)\b/gi;
+  const vagueAttrMatches = Array.from(text.matchAll(vagueAttrRegex)).map((m) => {
+    const start = Math.max(0, (m.index || 0) - 10);
+    const end = Math.min(text.length, (m.index || 0) + m[0].length + 30);
+    return text.slice(start, end);
+  });
+  if (vagueAttrMatches.length > 0) violations.push({ pattern: "vague attribution (name the source or reframe)", matches: vagueAttrMatches, type: "accuracy" });
+
+  // Signposting phrases
+  const signpostRegex = /\b(?:This\s+guide\s+(?:walks|covers|explores|breaks\s+down)|Here(?:'s|s)\s+what\s+you\s+need\s+to\s+know|Without\s+further\s+ado)\b/gi;
+  const signpostMatches = Array.from(text.matchAll(signpostRegex)).map((m) => {
+    const start = Math.max(0, (m.index || 0) - 5);
+    const end = Math.min(text.length, (m.index || 0) + m[0].length + 20);
+    return text.slice(start, end);
+  });
+  if (signpostMatches.length > 0) violations.push({ pattern: "signposting (just start the content)", matches: signpostMatches, type: "construction" });
+
   return violations;
 }
 
