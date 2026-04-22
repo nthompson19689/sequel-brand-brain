@@ -1,4 +1,5 @@
 import { getClaudeClient } from "@/lib/claude";
+import { WRITER_SYSTEM_PROMPT } from "@/lib/content/writer-prompt";
 import { getSupabaseServerClient } from "@/lib/supabase";
 import { buildSystemBlocks } from "@/lib/brand-context";
 
@@ -81,7 +82,7 @@ Pain Points & Angles:
 ${JSON.stringify(account.triggers || {})}
 `;
 
-  const additionalContext = OUTREACH_PROMPT + "\n\n" + accountContext;
+  const additionalContext = WRITER_SYSTEM_PROMPT + "\n\n" + OUTREACH_PROMPT + "\n\n" + accountContext;
 
   try {
     const claude = getClaudeClient();

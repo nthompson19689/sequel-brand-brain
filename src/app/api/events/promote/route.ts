@@ -1,4 +1,5 @@
 import { getClaudeClient } from "@/lib/claude";
+import { WRITER_SYSTEM_PROMPT } from "@/lib/content/writer-prompt";
 import { getSupabaseServerClient } from "@/lib/supabase";
 import { buildSystemBlocks, getArticleLinkReference } from "@/lib/brand-context";
 
@@ -84,7 +85,7 @@ ${articleRef ? `\nRelevant content to reference/link:\n${articleRef}` : ""}
   try {
     const claude = getClaudeClient();
     const { blocks } = await buildSystemBlocks({
-      additionalContext: PROMOTE_PROMPT + "\n\n" + eventContext,
+      additionalContext: WRITER_SYSTEM_PROMPT + "\n\n" + PROMOTE_PROMPT + "\n\n" + eventContext,
     });
 
     const response = await claude.messages.create({

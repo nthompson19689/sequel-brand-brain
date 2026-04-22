@@ -1,4 +1,5 @@
 import { getClaudeClient } from "@/lib/claude";
+import { WRITER_SYSTEM_PROMPT } from "@/lib/content/writer-prompt";
 import { getSupabaseServerClient } from "@/lib/supabase";
 import { buildSystemBlocks, getArticleLinkReference } from "@/lib/brand-context";
 

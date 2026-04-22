@@ -1,4 +1,5 @@
 import { getClaudeClient } from "@/lib/claude";
+import { WRITER_SYSTEM_PROMPT } from "@/lib/content/writer-prompt";
 import { getSupabaseServerClient } from "@/lib/supabase";
 import { buildSystemBlocks } from "@/lib/brand-context";
 
@@ -91,7 +92,7 @@ Generate a personalized message for EACH step in this sequence. Replace all {{me
   try {
     const claude = getClaudeClient();
     const { blocks } = await buildSystemBlocks({
-      additionalContext: GENERATE_PROMPT + "\n\n" + prospectContext,
+      additionalContext: WRITER_SYSTEM_PROMPT + "\n\n" + GENERATE_PROMPT + "\n\n" + prospectContext,
     });
 
     const response = await claude.messages.create({
