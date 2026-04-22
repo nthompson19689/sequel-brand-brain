@@ -136,7 +136,7 @@ ${source.raw_transcript}
       // Blog post gets internal links, others don't need them
       const includeArticleRef = outputType === "blog_post";
       const articleRef = includeArticleRef ? await getArticleLinkReference() : "";
-      const additionalContext = prompt + "\n\n" + sourceContext +
+      const additionalContext = WRITER_SYSTEM_PROMPT + "\n\n" + prompt + "\n\n" + sourceContext +
         (articleRef ? `\n\n${articleRef}` : "") +
         (results.length > 0 ? `\n\n=== PREVIOUSLY GENERATED ===\n${results.map((r) => `[${r.output_type}] ${r.title}`).join("\n")}` : "");
 
