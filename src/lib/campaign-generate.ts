@@ -7,6 +7,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getClaudeClient } from "@/lib/claude";
 import { buildSystemBlocks } from "@/lib/brand-context";
 import { loadAgentPrompt } from "@/lib/campaign-agents";
+import { buildDocumentsContext } from "@/lib/campaign-documents";
 
 interface AssetRow {
   id: string;
@@ -48,12 +49,13 @@ export async function generateAsset(
   }
 
   const systemPrompt = await loadAgentPrompt(asset.agent);
+  const docsContext = await buildDocumentsContext(supabase, campaign.id, "writers");
 
   const userMessage = `Campaign: ${campaign.name}
 
 === CAMPAIGN CONTEXT (parsed from brief) ===
 ${JSON.stringify(campaign.parsed_context || {}, null, 2)}
-
+${docsContext ? "\n" + docsContext + "\n" : ""}
 === THIS ASSET ===
 Type: ${asset.asset_type}
 Working title: ${asset.title || "(none)"}

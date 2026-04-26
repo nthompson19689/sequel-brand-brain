@@ -38,6 +38,10 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
 
   const [campaign, setCampaign] = useState<any>(null);
   const [assets, setAssets] = useState<any[]>([]);
+  const [documents, setDocuments] = useState<any[]>([]);
+  const [docLabel, setDocLabel] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [editingBrief, setEditingBrief] = useState(false);
@@ -55,12 +59,19 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch(`/api/campaigns/${id}`);
+      const [res, docsRes] = await Promise.all([
+        fetch(`/api/campaigns/${id}`),
+        fetch(`/api/campaigns/${id}/documents`),
+      ]);
       if (res.ok) {
         const data = await res.json();
         setCampaign(data.campaign);
         setAssets(data.assets || []);
         setBriefDraft(data.campaign.brief || "");
+      }
+      if (docsRes.ok) {
+        const data = await docsRes.json();
+        setDocuments(data.documents || []);
       }
     } catch { /* ignore */ }
     setLoading(false);
@@ -183,6 +194,48 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
     await load();
   }
 
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setUploadError(null);
+    setUploading(true);
+    try {
+      for (const f of Array.from(files)) {
+        const fd = new FormData();
+        fd.append("file", f);
+        if (docLabel.trim()) fd.append("label", docLabel.trim());
+        const res = await fetch(`/api/campaigns/${id}/documents`, { method: "POST", body: fd });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          setUploadError(`${f.name}: ${err.error || res.statusText}`);
+          break;
+        }
+      }
+      setDocLabel("");
+      await load();
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : String(err));
+    }
+    setUploading(false);
+    // Reset input so same file can be reuploaded
+    e.target.value = "";
+  }
+
+  async function toggleDocWriters(docId: string, current: boolean) {
+    await fetch(`/api/campaigns/${id}/documents/${docId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ include_in_writers: !current }),
+    });
+    await load();
+  }
+
+  async function deleteDoc(docId: string) {
+    if (!confirm("Delete this document?")) return;
+    await fetch(`/api/campaigns/${id}/documents/${docId}`, { method: "DELETE" });
+    await load();
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-[#0F0A1A] text-white flex items-center justify-center">
@@ -223,7 +276,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
           <div className="flex items-center gap-2">
             <button
               onClick={handleParse}
-              disabled={parsing || !hasBrief}
+              disabled={parsing || (!hasBrief && documents.length === 0)}
               className="px-4 py-2 text-sm font-medium text-white bg-[#3F2A6E] rounded-lg hover:bg-[#4F3A7E] disabled:opacity-40 transition-colors"
             >
               {parsing ? "Parsing…" : hasManifest ? "Re-parse Brief" : "Parse Brief"}
@@ -236,6 +289,69 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
               {generating ? "Generating…" : "Generate Assets"}
             </button>
           </div>
+        </div>
+
+        {/* Documents */}
+        <div className="bg-[#1A1228] border border-[#2A2040] rounded-xl p-5 mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Reference Documents</h3>
+              <p className="text-[11px] text-gray-500 mt-0.5">PRDs, transcripts, FAQs, CSVs, research — fed into the orchestrator and writers.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                placeholder="Optional label"
+                value={docLabel}
+                onChange={(e) => setDocLabel(e.target.value)}
+                className="rounded-lg border border-[#2A2040] bg-[#0F0A1A] px-2 py-1 text-xs text-white focus:border-purple-500 focus:outline-none w-36"
+              />
+              <label className={`px-3 py-1.5 text-xs font-medium text-white bg-[#3F2A6E] rounded-lg cursor-pointer hover:bg-[#4F3A7E] transition-colors ${uploading ? "opacity-40 pointer-events-none" : ""}`}>
+                {uploading ? "Uploading…" : "+ Upload"}
+                <input
+                  type="file"
+                  multiple
+                  accept=".pdf,.doc,.docx,.txt,.md,.csv"
+                  onChange={handleUpload}
+                  className="hidden"
+                />
+              </label>
+            </div>
+          </div>
+          {uploadError && <p className="text-xs text-red-400 mb-2">{uploadError}</p>}
+          {documents.length === 0 ? (
+            <p className="text-xs text-gray-600 italic">No documents yet. Upload PDFs, Word docs, CSVs, or text files (≤ a few MB each).</p>
+          ) : (
+            <div className="space-y-1.5">
+              {documents.map((d) => (
+                <div key={d.id} className="flex items-center justify-between bg-[#0F0A1A] border border-[#2A2040] rounded-lg px-3 py-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium text-white truncate">{d.label || d.filename}</span>
+                      <span className="text-[10px] uppercase text-gray-500">{d.file_type}</span>
+                    </div>
+                    <p className="text-[10px] text-gray-600">
+                      {d.label ? `${d.filename} · ` : ""}{d.word_count?.toLocaleString() || 0} words
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => toggleDocWriters(d.id, d.include_in_writers)}
+                      title="Include in writer prompts (orchestrator always sees it)"
+                      className={`px-2 py-0.5 text-[10px] rounded-full transition-colors ${
+                        d.include_in_writers
+                          ? "bg-emerald-900/40 text-emerald-400 border border-emerald-800/30"
+                          : "bg-gray-800/40 text-gray-500 border border-[#2A2040]"
+                      }`}
+                    >
+                      {d.include_in_writers ? "writers ✓" : "writers ✗"}
+                    </button>
+                    <button onClick={() => deleteDoc(d.id)} className="px-2 py-0.5 text-[10px] font-medium text-red-400/70 border border-red-900/30 rounded hover:bg-red-900/20 transition-colors">×</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Brief */}

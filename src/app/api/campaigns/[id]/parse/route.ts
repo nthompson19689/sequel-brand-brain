@@ -3,6 +3,7 @@ import { getSupabaseServerClient } from "@/lib/supabase";
 import { getClaudeClient } from "@/lib/claude";
 import { buildSystemBlocks } from "@/lib/brand-context";
 import { loadAgentPrompt, AGENT_FOR_ASSET, type AssetType } from "@/lib/campaign-agents";
+import { buildDocumentsContext } from "@/lib/campaign-documents";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -24,7 +25,11 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   const { data: campaign, error: cErr } = await supabase
     .from("campaigns").select("*").eq("id", id).single();
   if (cErr || !campaign) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  if (!campaign.brief) return NextResponse.json({ error: "Campaign has no brief" }, { status: 400 });
+
+  const docsContext = await buildDocumentsContext(supabase, id, "all");
+  if (!campaign.brief && !docsContext) {
+    return NextResponse.json({ error: "Campaign has no brief or documents" }, { status: 400 });
+  }
 
   const claude = getClaudeClient();
   const systemPrompt = await loadAgentPrompt("orchestrator-parse");
@@ -44,7 +49,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
       system: blocks,
       messages: [{
         role: "user",
-        content: `Campaign name: ${campaign.name}\nLaunch date: ${campaign.launch_date || "TBD"}\n\n=== BRIEF ===\n${campaign.brief}`,
+        content: `Campaign name: ${campaign.name}\nLaunch date: ${campaign.launch_date || "TBD"}\n\n=== BRIEF ===\n${campaign.brief || "(no brief — extract context from documents below)"}${docsContext ? "\n\n" + docsContext : ""}`,
       }],
     });
     usage = response.usage || {};
