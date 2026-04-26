@@ -93,6 +93,15 @@ export const MODULES: AppModule[] = [
     section: "shared",
   },
   {
+    id: "campaigns",
+    displayName: "Campaigns",
+    description: "Product launch engine — turn a brief into a full multi-channel campaign",
+    path: "/campaigns",
+    iconKey: "Campaigns",
+    defaultRoles: ["marketing"],
+    section: "shared",
+  },
+  {
     id: "studio",
     displayName: "SME Studio",
     description: "Turn transcripts and recordings into blog posts, newsletters, and LinkedIn content",
