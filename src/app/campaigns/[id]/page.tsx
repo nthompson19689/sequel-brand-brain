@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, use } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "next/navigation";
 
@@ -31,8 +31,8 @@ const ASSET_TYPE_LABELS: Record<string, string> = {
   social: "Social Posts",
 };
 
-export default function CampaignDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+export default function CampaignDetailPage({ params }: { params: { id: string } }) {
+  const { id } = params;
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
 
