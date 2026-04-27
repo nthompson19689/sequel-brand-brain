@@ -8,6 +8,7 @@ import { getClaudeClient } from "@/lib/claude";
 import { buildSystemBlocks } from "@/lib/brand-context";
 import { loadAgentPrompt } from "@/lib/campaign-agents";
 import { buildDocumentsContext } from "@/lib/campaign-documents";
+import { runEditorPipeline } from "@/lib/content/editor-pipeline";
 
 interface AssetRow {
   id: string;
@@ -18,6 +19,8 @@ interface AssetRow {
   audience: string | null;
   intent: string | null;
   dependencies: string[] | null;
+  feedback?: string | null;
+  revision_count?: number | null;
 }
 
 interface CampaignRow {
@@ -66,6 +69,16 @@ export async function generateAsset(
 
   const systemPrompt = basePrompt + override;
 
+  // Human-in-the-loop feedback from a prior revision (if any).
+  const feedbackBlock = (asset.feedback && asset.feedback.trim())
+    ? `\n\n=== HUMAN FEEDBACK FROM PRIOR REVISION (HIGHEST PRIORITY) ===
+The reviewer read the previous version and left these notes. Apply ALL of them. They override generic style instructions when in conflict, because they reflect what this specific reader wants:
+
+${asset.feedback.trim()}
+
+This is revision #${(asset.revision_count || 0) + 1}. The previous version missed the mark in the ways above — do not repeat those mistakes.`
+    : "";
+
   const userMessage = `Campaign: ${campaign.name}
 
 === CAMPAIGN CONTEXT (parsed from brief) ===
@@ -76,7 +89,7 @@ Type: ${asset.asset_type}
 Working title: ${asset.title || "(none)"}
 Audience: ${asset.audience || "(unspecified)"}
 Intent: ${asset.intent || "(unspecified)"}
-${depContext}
+${depContext}${feedbackBlock}
 
 Generate this asset now. Return only the JSON specified in your instructions.`;
 
@@ -120,12 +133,36 @@ Generate this asset now. Return only the JSON specified in your instructions.`;
     parsed = { title: asset.title || asset.asset_type, body: rawText };
   }
 
-  const body = typeof parsed.body === "string"
+  let body = typeof parsed.body === "string"
     ? parsed.body
     : JSON.stringify(parsed, null, 2);
   const title = typeof parsed.title === "string" ? parsed.title : asset.title;
   const { body: _b, title: _t, ...metadata } = parsed as Record<string, unknown>;
   void _b; void _t;
+
+  // ── Long-form editor pass ────────────────────────────────────────────
+  // Run blog + thought-leadership drafts through the same editor used
+  // for our long-form articles (kill-list, structural variety, source
+  // checks, etc). Skipped on failure so a bad editor pass never blocks
+  // the asset from saving.
+  if (isBlog) {
+    try {
+      const wordCountTarget = body.split(/\s+/).filter(Boolean).length || 1500;
+      const editResult = await runEditorPipeline({
+        claude,
+        draft: body,
+        wordCount: wordCountTarget,
+      });
+      if (editResult.cleanDraft && editResult.cleanDraft.trim().length > 200) {
+        body = editResult.cleanDraft;
+        (metadata as Record<string, unknown>).editor_review_notes = editResult.reviewNotes;
+        (metadata as Record<string, unknown>).editor_gates_passed = `${editResult.gatesPassed}/${editResult.gatesTotal}`;
+      }
+    } catch (err) {
+      (metadata as Record<string, unknown>).editor_error =
+        err instanceof Error ? err.message : String(err);
+    }
+  }
 
   await supabase.from("campaign_generations").insert({
     campaign_id: campaign.id,
@@ -144,6 +181,7 @@ Generate this asset now. Return only the JSON specified in your instructions.`;
     metadata,
     status: "ready",
     error: null,
+    revision_count: (asset.revision_count || 0) + 1,
   }).eq("id", asset.id);
 
   return { ok: true, body, metadata };

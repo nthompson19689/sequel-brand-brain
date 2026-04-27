@@ -56,6 +56,7 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
   const [assetEditBody, setAssetEditBody] = useState<string>("");
   const [savingAsset, setSavingAsset] = useState(false);
   const [regenAssetId, setRegenAssetId] = useState<string | null>(null);
+  const [feedbackDraft, setFeedbackDraft] = useState<string>("");
 
   const load = useCallback(async () => {
     try {
@@ -156,9 +157,16 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
     setGenerating(false);
   }
 
-  async function regenerateAsset(assetId: string) {
+  async function regenerateAsset(assetId: string, feedback?: string) {
     setRegenAssetId(assetId);
     try {
+      if (typeof feedback === "string") {
+        await fetch(`/api/campaigns/${id}/assets/${assetId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ feedback }),
+        });
+      }
       await fetch(`/api/campaigns/${id}/assets/${assetId}/regenerate`, { method: "POST" });
       await load();
     } catch { /* ignore */ }
@@ -440,7 +448,7 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
                   </div>
                   <div className="flex items-center gap-2 shrink-0 ml-3">
                     {a.body && (
-                      <button onClick={() => { setOpenAssetId(openAssetId === a.id ? null : a.id); setAssetEditBody(a.body || ""); }} className="px-2 py-1 text-[10px] font-medium text-gray-300 border border-[#2A2040] rounded hover:bg-[#0F0A1A] transition-colors">
+                      <button onClick={() => { setOpenAssetId(openAssetId === a.id ? null : a.id); setAssetEditBody(a.body || ""); setFeedbackDraft(a.feedback || ""); }} className="px-2 py-1 text-[10px] font-medium text-gray-300 border border-[#2A2040] rounded hover:bg-[#0F0A1A] transition-colors">
                         {openAssetId === a.id ? "Close" : "View"}
                       </button>
                     )}
@@ -516,6 +524,43 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
                         {savingAsset ? "Saving…" : "Save Edits"}
                       </button>
                     </div>
+
+                    {/* Feedback loop — write notes, regenerate using them */}
+                    <div className="mt-4 pt-4 border-t border-[#2A2040]">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+                          Revision Notes {typeof a.revision_count === "number" && a.revision_count > 0 && (
+                            <span className="ml-1 text-gray-600 normal-case font-normal">(v{a.revision_count})</span>
+                          )}
+                        </label>
+                        <span className="text-[10px] text-gray-600">Fed into the next regeneration as highest-priority guidance.</span>
+                      </div>
+                      <textarea
+                        value={feedbackDraft}
+                        onChange={(e) => setFeedbackDraft(e.target.value)}
+                        rows={4}
+                        placeholder="What's off about this draft? e.g. 'Too generic — lead with the customer story. Cut the bullet list in section 2. Use sharper verbs. Less corporate, more confident.'"
+                        className="w-full rounded-lg border border-[#2A2040] bg-[#0F0A1A] px-3 py-2 text-xs text-gray-200 focus:border-purple-500 focus:outline-none resize-none"
+                      />
+                      <div className="flex justify-end gap-2 mt-2">
+                        <button
+                          onClick={async () => {
+                            await patchAsset(a.id, { feedback: feedbackDraft });
+                          }}
+                          className="px-3 py-1.5 text-xs text-gray-400 hover:text-white"
+                        >
+                          Save Notes
+                        </button>
+                        <button
+                          onClick={() => regenerateAsset(a.id, feedbackDraft)}
+                          disabled={regenAssetId === a.id}
+                          className="px-3 py-1.5 text-xs font-medium text-white bg-[#3F2A6E] rounded hover:bg-[#4F3A7E] disabled:opacity-40"
+                        >
+                          {regenAssetId === a.id ? "Regenerating…" : "Save Notes & Regenerate"}
+                        </button>
+                      </div>
+                    </div>
+
                     {a.metadata && Object.keys(a.metadata).length > 0 && (
                       <details className="mt-3">
                         <summary className="text-[10px] text-gray-500 cursor-pointer">Metadata</summary>
