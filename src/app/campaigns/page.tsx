@@ -99,6 +99,13 @@ export default function CampaignsListPage() {
             <h1 className="text-2xl font-semibold">Product Launch Campaigns</h1>
             <p className="text-sm text-gray-400 mt-1">Turn a launch brief into a full multi-channel campaign</p>
           </div>
+          <div className="flex items-center gap-2">
+          <button
+            onClick={() => router.push("/campaigns/settings")}
+            className="px-3 py-2 text-xs font-medium text-gray-300 border border-[#2A2040] rounded-lg hover:bg-[#1A1228] transition-colors"
+          >
+            Writer Guidelines
+          </button>
           <button
             onClick={() => setShowNew(!showNew)}
             className="px-4 py-2.5 text-sm font-medium text-white bg-[#7C3AED] rounded-lg hover:bg-[#6D28D9] transition-colors inline-flex items-center gap-2"
@@ -112,6 +119,7 @@ export default function CampaignsListPage() {
               </>
             )}
           </button>
+          </div>
         </div>
 
         {showNew && (

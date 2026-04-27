@@ -48,8 +48,23 @@ export async function generateAsset(
     }
   }
 
-  const systemPrompt = await loadAgentPrompt(asset.agent);
+  const basePrompt = await loadAgentPrompt(asset.agent);
   const docsContext = await buildDocumentsContext(supabase, campaign.id, "writers");
+
+  // Per-asset-type Sequel override (appended to base prompt)
+  let override = "";
+  try {
+    const { data: ovr } = await supabase
+      .from("campaign_writer_overrides")
+      .select("prompt, enabled")
+      .eq("asset_type", asset.asset_type)
+      .maybeSingle();
+    if (ovr && ovr.enabled && ovr.prompt && ovr.prompt.trim()) {
+      override = `\n\n=== SEQUEL ${asset.asset_type.toUpperCase()} GUIDELINES (priority over base instructions) ===\n${ovr.prompt}`;
+    }
+  } catch { /* ignore */ }
+
+  const systemPrompt = basePrompt + override;
 
   const userMessage = `Campaign: ${campaign.name}
 
