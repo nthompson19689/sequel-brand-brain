@@ -188,6 +188,15 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
     await load();
   }
 
+  async function patchAsset(assetId: string, fields: Record<string, unknown>) {
+    await fetch(`/api/campaigns/${id}/assets/${assetId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(fields),
+    });
+    await load();
+  }
+
   async function deleteAsset(assetId: string) {
     if (!confirm("Delete this asset?")) return;
     await fetch(`/api/campaigns/${id}/assets/${assetId}`, { method: "DELETE" });
@@ -450,6 +459,48 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
                     ) : null}
                     <button onClick={() => deleteAsset(a.id)} className="px-2 py-1 text-[10px] font-medium text-red-400/70 border border-red-900/30 rounded hover:bg-red-900/20 transition-colors">×</button>
                   </div>
+                </div>
+                <div className="border-t border-[#2A2040] px-4 py-2 bg-black/20 flex flex-wrap items-center gap-2 text-[10px]">
+                  <label className="text-gray-500">When</label>
+                  <input
+                    type="datetime-local"
+                    value={a.scheduled_at ? new Date(a.scheduled_at).toISOString().slice(0, 16) : ""}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      patchAsset(a.id, { scheduled_at: v ? new Date(v).toISOString() : null });
+                    }}
+                    className="rounded border border-[#2A2040] bg-[#0F0A1A] px-2 py-1 text-[11px] text-white focus:border-purple-500 focus:outline-none"
+                  />
+                  <label className="text-gray-500 ml-2">Where</label>
+                  <input
+                    type="text"
+                    defaultValue={a.channel || ""}
+                    placeholder="e.g. Founder LinkedIn"
+                    onBlur={(e) => {
+                      if ((e.target.value || "") !== (a.channel || "")) patchAsset(a.id, { channel: e.target.value || null });
+                    }}
+                    className="rounded border border-[#2A2040] bg-[#0F0A1A] px-2 py-1 text-[11px] text-white focus:border-purple-500 focus:outline-none w-48"
+                  />
+                  <input
+                    type="url"
+                    defaultValue={a.channel_url || ""}
+                    placeholder="URL (optional)"
+                    onBlur={(e) => {
+                      if ((e.target.value || "") !== (a.channel_url || "")) patchAsset(a.id, { channel_url: e.target.value || null });
+                    }}
+                    className="rounded border border-[#2A2040] bg-[#0F0A1A] px-2 py-1 text-[11px] text-white focus:border-purple-500 focus:outline-none flex-1 min-w-[140px]"
+                  />
+                  {a.status === "approved" && !a.posted_at && (
+                    <button
+                      onClick={() => patchAsset(a.id, { posted_at: new Date().toISOString(), status: "published" })}
+                      className="px-2 py-1 text-[10px] font-medium text-blue-400 border border-blue-800/30 rounded hover:bg-blue-900/20"
+                    >
+                      Mark Posted
+                    </button>
+                  )}
+                  {a.posted_at && (
+                    <span className="text-emerald-400">Posted {new Date(a.posted_at).toLocaleDateString()}</span>
+                  )}
                 </div>
                 {openAssetId === a.id && (
                   <div className="border-t border-[#2A2040] p-4 bg-black/30">

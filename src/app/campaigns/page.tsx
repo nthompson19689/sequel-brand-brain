@@ -101,6 +101,12 @@ export default function CampaignsListPage() {
           </div>
           <div className="flex items-center gap-2">
           <button
+            onClick={() => router.push("/campaigns/todo")}
+            className="px-3 py-2 text-xs font-medium text-gray-300 border border-[#2A2040] rounded-lg hover:bg-[#1A1228] transition-colors"
+          >
+            Posting To-Do
+          </button>
+          <button
             onClick={() => router.push("/campaigns/settings")}
             className="px-3 py-2 text-xs font-medium text-gray-300 border border-[#2A2040] rounded-lg hover:bg-[#1A1228] transition-colors"
           >

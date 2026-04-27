@@ -14,6 +14,8 @@ interface ManifestItem {
   title?: string;
   audience?: string;
   intent?: string;
+  channel?: string;
+  offset_days?: number;
   dependencies?: string[];
 }
 
@@ -83,18 +85,33 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   // Wipe any prior pending assets so re-parse is idempotent
   await supabase.from("campaign_assets").delete().eq("campaign_id", id).in("status", ["pending", "failed"]);
 
+  // Compute scheduled_at from launch_date + offset_days
+  const launch = campaign.launch_date ? new Date(campaign.launch_date) : null;
+
   // Insert assets
-  const rows = manifest.map((m, i) => ({
-    campaign_id: id,
-    asset_type: m.asset_type,
-    agent: m.agent || AGENT_FOR_ASSET[m.asset_type] || "blog-writer",
-    title: m.title || null,
-    audience: m.audience || null,
-    intent: m.intent || null,
-    dependencies: m.dependencies || [],
-    status: "pending",
-    position: i,
-  }));
+  const rows = manifest.map((m, i) => {
+    let scheduled_at: string | null = null;
+    if (launch && typeof m.offset_days === "number") {
+      const d = new Date(launch);
+      d.setUTCDate(d.getUTCDate() + m.offset_days);
+      // Default to 9am UTC on the scheduled day
+      d.setUTCHours(9, 0, 0, 0);
+      scheduled_at = d.toISOString();
+    }
+    return {
+      campaign_id: id,
+      asset_type: m.asset_type,
+      agent: m.agent || AGENT_FOR_ASSET[m.asset_type] || "blog-writer",
+      title: m.title || null,
+      audience: m.audience || null,
+      intent: m.intent || null,
+      channel: m.channel || null,
+      scheduled_at,
+      dependencies: m.dependencies || [],
+      status: "pending",
+      position: i,
+    };
+  });
 
   let insertedAssets: unknown[] = [];
   if (rows.length > 0) {

@@ -27,11 +27,27 @@ Read the brief carefully. Pull out only what is actually stated or strongly impl
       "title": "specific working title for this asset",
       "audience": "who reads this exact asset",
       "intent": "what this asset must accomplish",
+      "channel": "where it gets posted (e.g. 'Sequel blog', 'Customer newsletter', 'Founder LinkedIn', 'Company LinkedIn', 'X/Twitter', 'Internal Slack #all-hands', 'Sales enablement Notion')",
+      "offset_days": 0,
       "dependencies": []
     }
   ]
 }
 ```
+
+## Scheduling rules
+- `offset_days` is days relative to the launch date. Negative = before launch, 0 = launch day, positive = after.
+- Typical cadence:
+  - Internal Slack announcement: -3 to -1 (early heads-up)
+  - Blog post + website copy: 0 (launch day)
+  - Announcement email + Founder LinkedIn + Company LinkedIn + first social posts: 0 (launch day)
+  - Sales enablement one-pager: -2 (so AEs are armed before launch)
+  - FAQ doc: 0 or -1
+  - Video script: -5 (production lead time)
+  - Nurture email: +3 to +5
+  - Thought leadership: +7 to +14 (pull-through narrative once launch noise fades)
+  - Follow-up social posts: +1, +3, +7
+- If no launch date exists, use 0 for everything and the user can adjust.
 
 ## Manifest rules
 - Default launch package = 1 blog, 1 announcement email, 1 nurture email, 1 LinkedIn founder post, 1 LinkedIn company post, 1 sales one-pager, 1 website hero/feature copy, 1 FAQ doc, 1 short video script, 1 internal Slack announcement, 1 thought-leadership angle, 2-3 social posts.

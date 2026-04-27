@@ -25,7 +25,10 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string; a
 
   const body = await req.json();
   const updates: Record<string, unknown> = {};
-  for (const k of ["title", "body", "metadata", "status", "audience", "intent", "agent"]) {
+  for (const k of [
+    "title", "body", "metadata", "status", "audience", "intent", "agent",
+    "channel", "channel_url", "scheduled_at", "posted_at", "notes",
+  ]) {
     if (k in body) updates[k] = body[k];
   }
 
