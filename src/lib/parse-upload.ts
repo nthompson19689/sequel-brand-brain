@@ -42,8 +42,10 @@ export async function extractTextFromFile(file: File): Promise<ParsedUpload> {
     }
   } else if (lower.endsWith(".pdf")) {
     fileType = "pdf";
+    // pdf-parse v1's index.js has a debug block that tries to read a test
+    // PDF on import. Import the inner module directly to avoid it.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const pdfParse = require("pdf-parse");
+    const pdfParse = require("pdf-parse/lib/pdf-parse.js");
     const result = await pdfParse(buffer);
     text = result.text;
   } else {
