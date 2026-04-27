@@ -26,7 +26,9 @@ export default function CampaignsListPage() {
   const [name, setName] = useState("");
   const [launchDate, setLaunchDate] = useState("");
   const [brief, setBrief] = useState("");
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -47,6 +49,7 @@ export default function CampaignsListPage() {
   async function handleCreate() {
     if (!name.trim()) return;
     setSubmitting(true);
+    setCreateError(null);
     try {
       const res = await fetch("/api/campaigns", {
         method: "POST",
@@ -57,12 +60,35 @@ export default function CampaignsListPage() {
           launch_date: launchDate || null,
         }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        router.push(`/campaigns/${data.campaign.id}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setCreateError(err.error || "Failed to create campaign");
+        setSubmitting(false);
+        return;
       }
-    } catch { /* ignore */ }
-    setSubmitting(false);
+      const data = await res.json();
+      const campaignId = data.campaign.id;
+
+      // Upload any staged files in parallel
+      if (pendingFiles.length > 0) {
+        const uploads = pendingFiles.map((f) => {
+          const fd = new FormData();
+          fd.append("file", f);
+          return fetch(`/api/campaigns/${campaignId}/documents`, { method: "POST", body: fd });
+        });
+        const results = await Promise.all(uploads);
+        const failed = results.filter((r) => !r.ok);
+        if (failed.length > 0) {
+          // Still navigate, but warn — user can re-upload from detail page
+          console.warn(`${failed.length} doc upload(s) failed`);
+        }
+      }
+
+      router.push(`/campaigns/${campaignId}`);
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : "Failed to create campaign");
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -107,8 +133,40 @@ export default function CampaignsListPage() {
                 <p className="text-[11px] text-gray-500 mb-2">Paste anything: PRD, narrative doc, bullet points, internal Slack thread. The orchestrator will extract product context and propose an asset manifest.</p>
                 <textarea value={brief} onChange={(e) => setBrief(e.target.value)} rows={10} className="w-full rounded-lg border border-[#2A2040] bg-[#0F0A1A] px-3 py-2 text-sm text-white focus:border-purple-500 focus:outline-none resize-none" placeholder="What is launching? Who is it for? What are the value props? What proof points do you have?" />
               </div>
+              <div>
+                <label className="text-xs font-medium text-gray-400 block mb-1">Reference Documents</label>
+                <p className="text-[11px] text-gray-500 mb-2">Optional. PDFs, Word docs, txt, md, or CSVs. Fed into the orchestrator and writers alongside the brief.</p>
+                <label className="inline-block px-3 py-1.5 text-xs font-medium text-white bg-[#3F2A6E] rounded-lg cursor-pointer hover:bg-[#4F3A7E] transition-colors">
+                  + Add Files
+                  <input
+                    type="file"
+                    multiple
+                    accept=".pdf,.doc,.docx,.txt,.md,.csv"
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files || []);
+                      setPendingFiles((prev) => [...prev, ...files]);
+                      e.target.value = "";
+                    }}
+                    className="hidden"
+                  />
+                </label>
+                {pendingFiles.length > 0 && (
+                  <div className="mt-3 space-y-1.5">
+                    {pendingFiles.map((f, i) => (
+                      <div key={i} className="flex items-center justify-between bg-[#0F0A1A] border border-[#2A2040] rounded-lg px-3 py-1.5">
+                        <span className="text-xs text-white truncate">{f.name} <span className="text-gray-500">({Math.round(f.size / 1024)} KB)</span></span>
+                        <button
+                          onClick={() => setPendingFiles((prev) => prev.filter((_, idx) => idx !== i))}
+                          className="text-[10px] text-red-400/70 hover:text-red-400"
+                        >×</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {createError && <p className="text-xs text-red-400">{createError}</p>}
               <button onClick={handleCreate} disabled={!name.trim() || submitting} className="px-5 py-2.5 text-sm font-medium text-white bg-[#7C3AED] rounded-lg hover:bg-[#6D28D9] disabled:opacity-40 transition-colors">
-                {submitting ? "Creating..." : "Create Campaign"}
+                {submitting ? (pendingFiles.length > 0 ? `Creating & uploading ${pendingFiles.length} doc${pendingFiles.length > 1 ? "s" : ""}…` : "Creating…") : "Create Campaign"}
               </button>
             </div>
           </div>
