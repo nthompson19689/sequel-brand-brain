@@ -21,13 +21,29 @@ interface AssetRow {
   dependencies: string[] | null;
   feedback?: string | null;
   revision_count?: number | null;
+  phase?: string | null;
 }
 
 interface CampaignRow {
   id: string;
   name: string;
   parsed_context: Record<string, unknown> | null;
+  event_transcript?: string | null;
 }
+
+/**
+ * Mandatory citation/sourcing instruction injected into every writer
+ * EXCEPT social posts. Whenever the writer references a case study,
+ * customer story, blog post, or external claim, it must include a
+ * markdown link with relevant anchor text in that sentence.
+ */
+const CITATION_RULE = `\n\n=== SOURCING & CITATION RULE (MANDATORY) ===
+Any time you reference a case study, customer story, blog post, research piece, statistic, or external claim, you MUST include a markdown link in that sentence using relevant anchor text. Examples:
+  ✓ "When we worked with [Acme on their event launch](https://example.com/acme-case-study), attendance jumped 3x."
+  ✓ "Our [field guide on launch sequencing](https://example.com/field-guide) covers this in depth."
+  ✗ "We've helped many customers triple attendance." (no link, not allowed)
+  ✗ "Studies show webinars convert better." (vague, no link, not allowed)
+If you don't have a specific URL for a claim, REWRITE the sentence as a qualitative observation ("In our experience…", "What we're seeing is…") instead of inventing a link. Never fabricate URLs. This rule applies to the entire body of this asset.`;
 
 export async function generateAsset(
   supabase: SupabaseClient,
@@ -67,7 +83,19 @@ export async function generateAsset(
     }
   } catch { /* ignore */ }
 
-  const systemPrompt = basePrompt + override;
+  // Citation requirement for every asset type EXCEPT social.
+  const citationBlock = asset.asset_type === "social" ? "" : CITATION_RULE;
+
+  const systemPrompt = basePrompt + override + citationBlock;
+
+  // For post-event assets, inject the event transcript as primary context.
+  const transcriptBlock = (asset.phase === "post" && campaign.event_transcript && campaign.event_transcript.trim())
+    ? `\n=== EVENT TRANSCRIPT / THOUGHT-LEADER NOTES (primary source for this asset) ===
+This asset is a follow-up to the live event. Pull specific quotes, arguments, examples, and insights from the transcript below — do NOT generalize or paraphrase into corporate fluff. The whole point of this piece is that it reflects what actually happened.
+
+${campaign.event_transcript.trim().slice(0, 30000)}
+=== END TRANSCRIPT ===\n`
+    : "";
 
   // Human-in-the-loop feedback from a prior revision (if any).
   const feedbackBlock = (asset.feedback && asset.feedback.trim())
@@ -83,7 +111,7 @@ This is revision #${(asset.revision_count || 0) + 1}. The previous version misse
 
 === CAMPAIGN CONTEXT (parsed from brief) ===
 ${JSON.stringify(campaign.parsed_context || {}, null, 2)}
-${docsContext ? "\n" + docsContext + "\n" : ""}
+${docsContext ? "\n" + docsContext + "\n" : ""}${transcriptBlock}
 === THIS ASSET ===
 Type: ${asset.asset_type}
 Working title: ${asset.title || "(none)"}

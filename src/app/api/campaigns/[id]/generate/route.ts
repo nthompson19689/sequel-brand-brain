@@ -43,7 +43,14 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     .order("position", { ascending: true });
 
   const all: AssetRow[] = (assets || []) as AssetRow[];
-  const pending = all.filter((a) => a.status === "pending" || a.status === "failed");
+  // Blocked = post-event assets that need a transcript before they can run.
+  // Only include them in this batch if the campaign now has a transcript.
+  const hasTranscript = !!(campaign as { event_transcript?: string | null }).event_transcript?.trim();
+  const pending = all.filter((a) => {
+    if (a.status === "pending" || a.status === "failed") return true;
+    if (a.status === "blocked" && hasTranscript) return true;
+    return false;
+  });
 
   await supabase.from("campaigns").update({ status: "generating" }).eq("id", id);
 

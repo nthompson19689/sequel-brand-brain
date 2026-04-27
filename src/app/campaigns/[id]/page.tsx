@@ -16,6 +16,7 @@ const STATUS_COLORS: Record<string, string> = {
   pending: "bg-gray-800/40 text-gray-400",
   failed: "bg-red-900/40 text-red-400",
   published: "bg-blue-900/40 text-blue-400",
+  blocked: "bg-amber-900/30 text-amber-500/80",
 };
 
 const ASSET_TYPE_LABELS: Record<string, string> = {
@@ -57,6 +58,9 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
   const [savingAsset, setSavingAsset] = useState(false);
   const [regenAssetId, setRegenAssetId] = useState<string | null>(null);
   const [feedbackDraft, setFeedbackDraft] = useState<string>("");
+  const [transcriptDraft, setTranscriptDraft] = useState<string>("");
+  const [savingTranscript, setSavingTranscript] = useState(false);
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -69,6 +73,7 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
         setCampaign(data.campaign);
         setAssets(data.assets || []);
         setBriefDraft(data.campaign.brief || "");
+        setTranscriptDraft(data.campaign.event_transcript || "");
       }
       if (docsRes.ok) {
         const data = await docsRes.json();
@@ -203,6 +208,19 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
       body: JSON.stringify(fields),
     });
     await load();
+  }
+
+  async function saveTranscript() {
+    setSavingTranscript(true);
+    try {
+      await fetch(`/api/campaigns/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event_transcript: transcriptDraft }),
+      });
+      await load();
+    } catch { /* ignore */ }
+    setSavingTranscript(false);
   }
 
   async function deleteAsset(assetId: string) {
@@ -430,11 +448,12 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
           </div>
         )}
 
-        {/* Assets */}
-        {assets.length > 0 ? (
-          <div className="space-y-3">
-            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Assets ({assets.length})</h3>
-            {assets.map((a) => (
+        {/* Assets — bucketed by phase */}
+        {(() => {
+          const preAssets = assets.filter((a) => (a.phase || "pre") === "pre");
+          const postAssets = assets.filter((a) => a.phase === "post");
+          const hasTranscript = !!(campaign.event_transcript || "").trim();
+          const renderAssetCard = (a: any) => (
               <div key={a.id} className="bg-[#1A1228] border border-[#2A2040] rounded-xl overflow-hidden">
                 <div className="flex items-center justify-between p-4">
                   <div className="flex-1 min-w-0">
@@ -570,13 +589,91 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
                   </div>
                 )}
               </div>
-            ))}
-          </div>
-        ) : hasManifest ? (
-          <p className="text-sm text-gray-500 text-center py-8">Manifest is ready. Click <span className="text-purple-400">Generate Assets</span> to start.</p>
-        ) : (
-          <p className="text-sm text-gray-500 text-center py-8">Add a brief, then click <span className="text-purple-400">Parse Brief</span>.</p>
-        )}
+            );
+
+          if (assets.length === 0) {
+            return hasManifest ? (
+              <p className="text-sm text-gray-500 text-center py-8">Manifest is ready. Click <span className="text-purple-400">Generate Assets</span> to start.</p>
+            ) : (
+              <p className="text-sm text-gray-500 text-center py-8">Add a brief, then click <span className="text-purple-400">Parse Brief</span>.</p>
+            );
+          }
+
+          return (
+            <div className="space-y-8">
+              {/* Pre-Event bucket */}
+              {preAssets.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <h3 className="text-xs font-semibold text-gray-300 uppercase tracking-wider">Pre-Event Assets <span className="text-gray-600">({preAssets.length})</span></h3>
+                      <p className="text-[11px] text-gray-500 mt-0.5">Everything that ships before launch day. Generated immediately.</p>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    {preAssets.map(renderAssetCard)}
+                  </div>
+                </div>
+              )}
+
+              {/* Post-Launch bucket */}
+              {postAssets.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <h3 className="text-xs font-semibold text-gray-300 uppercase tracking-wider">Post-Launch Assets <span className="text-gray-600">({postAssets.length})</span></h3>
+                      <p className="text-[11px] text-gray-500 mt-0.5">Follow-up emails, replay LinkedIn posts, thought-leadership writeup. Gated until you add the event transcript / thought-leader notes below.</p>
+                    </div>
+                    <button
+                      onClick={handleGenerate}
+                      disabled={generating || !hasTranscript}
+                      title={!hasTranscript ? "Add the event transcript first" : ""}
+                      className="px-3 py-1.5 text-xs font-medium text-white bg-[#7C3AED] rounded hover:bg-[#6D28D9] disabled:opacity-40 transition-colors"
+                    >
+                      {generating ? "Generating…" : hasTranscript ? "Generate Post-Launch Assets" : "Locked — needs transcript"}
+                    </button>
+                  </div>
+
+                  {/* Transcript editor */}
+                  <div className="bg-[#1A1228] border border-[#2A2040] rounded-xl p-4 mb-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <div>
+                        <h4 className="text-xs font-semibold text-gray-300">Event Transcript & Thought-Leader Notes</h4>
+                        <p className="text-[10px] text-gray-500 mt-0.5">
+                          Paste the recording transcript, key quotes, or the speaker&apos;s post-event notes. The follow-up writers pull directly from this.
+                          {hasTranscript && <span className="text-emerald-400 ml-2">✓ Transcript saved ({(campaign.event_transcript || "").length.toLocaleString()} chars)</span>}
+                        </p>
+                      </div>
+                      <button onClick={() => setTranscriptOpen(!transcriptOpen)} className="text-[11px] text-purple-400 hover:text-purple-300">
+                        {transcriptOpen ? "Collapse" : hasTranscript ? "Edit" : "Add transcript"}
+                      </button>
+                    </div>
+                    {transcriptOpen && (
+                      <>
+                        <textarea
+                          value={transcriptDraft}
+                          onChange={(e) => setTranscriptDraft(e.target.value)}
+                          rows={10}
+                          placeholder="Paste the full event transcript here, or any post-event notes / quotes from the speaker."
+                          className="w-full rounded-lg border border-[#2A2040] bg-[#0F0A1A] px-3 py-2 text-xs text-gray-200 focus:border-purple-500 focus:outline-none resize-none font-mono"
+                        />
+                        <div className="flex justify-end mt-2">
+                          <button onClick={saveTranscript} disabled={savingTranscript} className="px-3 py-1.5 text-xs font-medium text-white bg-[#3F2A6E] rounded hover:bg-[#4F3A7E] disabled:opacity-40">
+                            {savingTranscript ? "Saving…" : "Save Transcript"}
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="space-y-3">
+                    {postAssets.map(renderAssetCard)}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

@@ -16,6 +16,8 @@ interface ManifestItem {
   intent?: string;
   channel?: string;
   offset_days?: number;
+  phase?: "pre" | "post";
+  gated?: boolean;
   dependencies?: string[];
 }
 
@@ -83,7 +85,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   }).eq("id", id);
 
   // Wipe any prior pending assets so re-parse is idempotent
-  await supabase.from("campaign_assets").delete().eq("campaign_id", id).in("status", ["pending", "failed"]);
+  await supabase.from("campaign_assets").delete().eq("campaign_id", id).in("status", ["pending", "failed", "blocked"]);
 
   // Compute scheduled_at from launch_date + offset_days
   const launch = campaign.launch_date ? new Date(campaign.launch_date) : null;
@@ -98,6 +100,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
       d.setUTCHours(9, 0, 0, 0);
       scheduled_at = d.toISOString();
     }
+    const gated = m.gated === true || m.phase === "post";
     return {
       campaign_id: id,
       asset_type: m.asset_type,
@@ -108,7 +111,9 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
       channel: m.channel || null,
       scheduled_at,
       dependencies: m.dependencies || [],
-      status: "pending",
+      phase: m.phase || (gated ? "post" : "pre"),
+      gated,
+      status: gated ? "blocked" : "pending",
       position: i,
     };
   });
