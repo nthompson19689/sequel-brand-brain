@@ -9,6 +9,7 @@ import { buildSystemBlocks } from "@/lib/brand-context";
 import { loadAgentPrompt } from "@/lib/campaign-agents";
 import { buildDocumentsContext } from "@/lib/campaign-documents";
 import { runEditorPipeline } from "@/lib/content/editor-pipeline";
+import { embedAndStore } from "@/lib/embeddings";
 
 interface AssetRow {
   id: string;
@@ -211,6 +212,14 @@ Generate this asset now. Return only the JSON specified in your instructions.`;
     error: null,
     revision_count: (asset.revision_count || 0) + 1,
   }).eq("id", asset.id);
+
+  // Background embed so future searches surface this asset.
+  void embedAndStore({
+    supabase,
+    table: "campaign_assets",
+    id: asset.id,
+    text: `${title || ""}\n\n${body || ""}`,
+  });
 
   return { ok: true, body, metadata };
 }

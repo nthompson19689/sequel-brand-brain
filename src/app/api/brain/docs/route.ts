@@ -1,5 +1,6 @@
 import { getSupabaseServerClient } from "@/lib/supabase";
 import { clearBrandCache } from "@/lib/brand-context";
+import { embedAndStore } from "@/lib/embeddings";
 import { NextRequest } from "next/server";
 
 export const runtime = "nodejs";
@@ -60,6 +61,17 @@ export async function POST(request: NextRequest) {
   }
 
   clearBrandCache(); // Invalidate so next Claude call picks up the change
+
+  // Re-embed in the background. Failure here never blocks the save.
+  if (data?.id) {
+    void embedAndStore({
+      supabase,
+      table: "brand_docs",
+      id: data.id,
+      text: `${data.name || ""}\n\n${data.content || ""}`,
+    });
+  }
+
   return Response.json({ doc: data });
 }
 

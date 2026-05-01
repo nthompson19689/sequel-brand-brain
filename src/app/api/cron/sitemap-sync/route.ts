@@ -1,4 +1,5 @@
 import { getSupabaseServerClient } from "@/lib/supabase";
+import { embedAndStore } from "@/lib/embeddings";
 import { NextRequest } from "next/server";
 
 export const runtime = "nodejs";
@@ -142,17 +143,22 @@ export async function GET(request: NextRequest) {
 
       const slug = new URL(entry.url).pathname.replace(/^\/|\/$/g, "").replace(/\//g, "-");
 
-      const { error: insertErr } = await supabase.from("articles").insert({
-        title: decodeEntities(title).slice(0, 500),
-        url: entry.url,
-        slug,
-        full_text: fullText,
-        meta_description: metaDesc ? decodeEntities(metaDesc).slice(0, 500) : null,
-        primary_keyword: entry.category === "blog" ? null : entry.category,
-        word_count: fullText.split(/\s+/).length,
-        status: "published",
-        content_type: entry.category,
-      });
+      const insertedTitle = decodeEntities(title).slice(0, 500);
+      const { data: inserted, error: insertErr } = await supabase
+        .from("articles")
+        .insert({
+          title: insertedTitle,
+          url: entry.url,
+          slug,
+          full_text: fullText,
+          meta_description: metaDesc ? decodeEntities(metaDesc).slice(0, 500) : null,
+          primary_keyword: entry.category === "blog" ? null : entry.category,
+          word_count: fullText.split(/\s+/).length,
+          status: "published",
+          content_type: entry.category,
+        })
+        .select("id")
+        .single();
 
       if (insertErr) {
         // Could be a unique constraint violation (race condition) — that's fine
@@ -164,6 +170,14 @@ export async function GET(request: NextRequest) {
         }
       } else {
         imported++;
+        if (inserted?.id) {
+          void embedAndStore({
+            supabase,
+            table: "articles",
+            id: inserted.id,
+            text: `${insertedTitle}\n\n${fullText}`,
+          });
+        }
         console.log(`[Sitemap Sync] Imported: ${decodeEntities(title).slice(0, 60)}`);
       }
     } catch (err) {

@@ -1,4 +1,5 @@
 import { getSupabaseServerClient } from "@/lib/supabase";
+import { embedAndStore } from "@/lib/embeddings";
 import { NextRequest } from "next/server";
 
 export const runtime = "nodejs";
@@ -135,13 +136,25 @@ export async function POST(request: NextRequest) {
             status: "published",
             content_type: category,
           };
-          const { error: insertErr } = await supabase.from("articles").insert(row);
+          const { data: inserted, error: insertErr } = await supabase
+            .from("articles")
+            .insert(row)
+            .select("id")
+            .single();
 
           if (insertErr) {
             failed++;
             send({ type: "fail", url: pageUrl, reason: insertErr.message });
           } else {
             imported++;
+            if (inserted?.id) {
+              void embedAndStore({
+                supabase,
+                table: "articles",
+                id: inserted.id,
+                text: `${row.title}\n\n${fullText}`,
+              });
+            }
             categoryCounts[category] = (categoryCounts[category] || 0) + 1;
             send({
               type: "imported",

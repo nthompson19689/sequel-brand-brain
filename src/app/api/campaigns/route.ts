@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase";
+import { embedAndStore } from "@/lib/embeddings";
 
 export const runtime = "nodejs";
 
@@ -36,5 +37,15 @@ export async function POST(request: Request) {
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  if (data?.id) {
+    void embedAndStore({
+      supabase,
+      table: "campaigns",
+      id: data.id,
+      text: `${data.name || ""}\n\n${data.brief || ""}`,
+    });
+  }
+
   return NextResponse.json({ campaign: data });
 }
