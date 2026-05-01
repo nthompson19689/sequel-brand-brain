@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import CallsSection from "@/components/brain/CallsSection";
 
 // ── Types ──────────────────────────────────────────
 interface BrandDoc {
@@ -21,7 +22,15 @@ interface Stats {
   brand_docs: { total: number; active: number; by_type: Record<string, number> };
   articles: { total: number; by_type: Record<string, number> };
   battle_cards: { total: number };
-  call_insights: { total: number };
+  call_insights: {
+    total: number;
+    by_type?: Record<string, number>;
+    needs_review?: number;
+    customer?: number;
+    sales?: number;
+    closed_won?: number;
+    closed_lost?: number;
+  };
 }
 
 const CONTENT_TYPE_LABELS: Record<string, string> = {
@@ -71,7 +80,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 // ── Main Page ──────────────────────────────────────
 export default function BrainPage() {
-  const [activeTab, setActiveTab] = useState<"docs" | "import" | "stats">("stats");
+  const [activeTab, setActiveTab] = useState<"docs" | "import" | "calls" | "stats">("stats");
 
   return (
     <div className="p-8 max-w-5xl">
@@ -89,6 +98,7 @@ export default function BrainPage() {
           { key: "stats" as const, label: "Overview", icon: "📊" },
           { key: "docs" as const, label: "Brand Documents", icon: "📚" },
           { key: "import" as const, label: "Content Importer", icon: "🌐" },
+          { key: "calls" as const, label: "Calls", icon: "📞" },
         ].map((tab) => (
           <button
             key={tab.key}
@@ -109,6 +119,7 @@ export default function BrainPage() {
       {activeTab === "stats" && <StatsSection />}
       {activeTab === "docs" && <BrandDocsSection />}
       {activeTab === "import" && <ImporterSection />}
+      {activeTab === "calls" && <CallsSection />}
     </div>
   );
 }
@@ -173,11 +184,42 @@ function StatsSection() {
     },
   ];
 
+  const callCards = [
+    {
+      label: "Customer Calls",
+      value: stats.call_insights.customer || 0,
+      sub: "QBRs, check-ins, support",
+      icon: "🤝",
+      color: "bg-blue-50 border-blue-200",
+    },
+    {
+      label: "Sales Calls",
+      value: stats.call_insights.sales || 0,
+      sub: "discovery, demo, follow-up",
+      icon: "📈",
+      color: "bg-purple-50 border-purple-200",
+    },
+    {
+      label: "Closed Won",
+      value: stats.call_insights.closed_won || 0,
+      sub: "deals signed",
+      icon: "🏆",
+      color: "bg-emerald-50 border-emerald-200",
+    },
+    {
+      label: "Closed Lost",
+      value: stats.call_insights.closed_lost || 0,
+      sub: "lessons to learn",
+      icon: "💔",
+      color: "bg-red-50 border-red-200",
+    },
+  ];
+
   const isEmpty = statCards.every((s) => s.value === 0);
 
   return (
     <div className="space-y-6">
-      {/* Stat cards */}
+      {/* Top-level stat cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {statCards.map((s) => (
           <div
@@ -190,6 +232,31 @@ function StatsSection() {
             <div className="text-xs text-gray-500 mt-0.5">{s.sub}</div>
           </div>
         ))}
+      </div>
+
+      {/* Call-insight breakdown cards */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-semibold text-gray-700">Calls by Type</h3>
+          {(stats.call_insights.needs_review || 0) > 0 && (
+            <span className="text-xs px-2 py-0.5 bg-yellow-100 text-yellow-800 border border-yellow-300 rounded">
+              {stats.call_insights.needs_review} need review
+            </span>
+          )}
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {callCards.map((s) => (
+            <div
+              key={s.label}
+              className={`rounded-xl border p-4 ${s.color} transition-colors`}
+            >
+              <div className="text-2xl mb-2">{s.icon}</div>
+              <div className="text-2xl font-bold text-gray-900">{s.value}</div>
+              <div className="text-sm font-medium text-gray-700">{s.label}</div>
+              <div className="text-xs text-gray-500 mt-0.5">{s.sub}</div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Brand docs breakdown */}

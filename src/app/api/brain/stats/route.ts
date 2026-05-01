@@ -15,7 +15,7 @@ export async function GET() {
         supabase.from("brand_docs").select("doc_type, is_active"),
         supabase.from("articles").select("id, status, content_type"),
         supabase.from("battle_cards").select("id", { count: "exact", head: false }),
-        supabase.from("call_insights").select("id", { count: "exact", head: false }),
+        supabase.from("call_insights").select("id, call_type, needs_review"),
       ]);
 
     // Count brand docs by type
@@ -48,9 +48,25 @@ export async function GET() {
       battle_cards: {
         total: (battleCardsRes.data || []).length,
       },
-      call_insights: {
-        total: (callInsightsRes.data || []).length,
-      },
+      call_insights: (() => {
+        const rows = (callInsightsRes.data || []) as { call_type?: string; needs_review?: boolean }[];
+        const by_type: Record<string, number> = {};
+        let needsReview = 0;
+        for (const r of rows) {
+          const t = r.call_type || "sales";
+          by_type[t] = (by_type[t] || 0) + 1;
+          if (r.needs_review) needsReview += 1;
+        }
+        return {
+          total: rows.length,
+          by_type,
+          needs_review: needsReview,
+          customer: by_type.customer || 0,
+          sales: by_type.sales || 0,
+          closed_won: (by_type.closed_won || 0) + (by_type.prospect_won || 0),
+          closed_lost: (by_type.closed_lost || 0) + (by_type.prospect_lost || 0),
+        };
+      })(),
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Stats error";

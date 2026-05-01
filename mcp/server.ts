@@ -255,7 +255,7 @@ async function searchCompetitiveIntel(competitor: string, limit = 8) {
   };
 }
 
-async function searchCallInsights(query: string, limit = 10) {
+async function searchCallInsights(query: string, limit = 10, callType?: string) {
   const v = await embed(query);
   const rows = await vectorSearch({
     table: "call_insights",
@@ -263,6 +263,7 @@ async function searchCallInsights(query: string, limit = 10) {
       "id, call_type, company_name, contact_name, summary, sentiment, churn_risk, case_study_candidate, full_content, embedding",
     embedding: v,
     limit,
+    extraFilter: callType ? (q) => q.eq("call_type", callType) : undefined,
   });
 
   return {
@@ -368,12 +369,17 @@ const TOOLS = [
   {
     name: "search_call_insights",
     description:
-      "Semantic search over call_insights (Gong-derived insights: objections, sentiment, case-study candidates, churn risks). Use for VoC questions.",
+      "Semantic search over call_insights (call transcripts, summaries, objections, sentiment, churn risks). Optionally filter by call_type to narrow the scope (e.g. only closed_lost calls when investigating loss reasons).",
     inputSchema: {
       type: "object",
       properties: {
         query: { type: "string", description: "Natural-language question, e.g. 'objections about pricing'" },
         limit: { type: "number", description: "Max insights to return (default 10)", default: 10 },
+        call_type: {
+          type: "string",
+          description: "Optional filter: customer | sales | closed_won | closed_lost | open_opp. Omit to search across all call types.",
+          enum: ["customer", "sales", "closed_won", "closed_lost", "open_opp"],
+        },
       },
       required: ["query"],
     },
@@ -406,7 +412,11 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
     } else if (name === "search_competitive_intel") {
       result = await searchCompetitiveIntel(String(a.competitor || ""), Number(a.limit) || 8);
     } else if (name === "search_call_insights") {
-      result = await searchCallInsights(String(a.query || ""), Number(a.limit) || 10);
+      result = await searchCallInsights(
+        String(a.query || ""),
+        Number(a.limit) || 10,
+        typeof a.call_type === "string" ? a.call_type : undefined,
+      );
     } else if (name === "search_campaigns") {
       result = await searchCampaigns(String(a.query || ""), Number(a.limit) || 8);
     } else {
