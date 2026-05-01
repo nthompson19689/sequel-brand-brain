@@ -423,6 +423,13 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
   }
 });
 
-const transport = new StdioServerTransport();
-await server.connect(transport);
-console.error("[mcp] sequel-brand-brain server ready on stdio");
+async function main() {
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+  console.error("[mcp] sequel-brand-brain server ready on stdio");
+}
+
+main().catch((err) => {
+  console.error("[mcp] fatal:", err);
+  process.exit(1);
+});
