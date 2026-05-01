@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { createSupabaseMiddlewareClient } from "@/lib/supabase-auth-server";
 
-const PUBLIC_PATHS = ["/login", "/signup", "/auth/callback", "/api/health", "/api/embed"];
+const PUBLIC_PATHS = ["/login", "/signup", "/auth/callback", "/api/health", "/api/embed", "/api/cron"];
 
 export async function middleware(request: NextRequest) {
   const { supabase, response } = createSupabaseMiddlewareClient(request);

@@ -15,6 +15,10 @@
     {
       "path": "/api/cron/docs-review",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/embed-backfill",
+      "schedule": "0 * * * *"
     }
   ]
 }
